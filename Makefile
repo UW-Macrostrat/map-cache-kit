@@ -1,2 +1,2 @@
 all:
-	poetry run cache
+	poetry run cache create

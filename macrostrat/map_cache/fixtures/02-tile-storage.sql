@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS tile_cache.tile (
   /* TODO: we could cache each layer separately and merge in the tile server */
   --layers text[] NOT NULL,
   data bytea NOT NULL,
+  compressed boolean NOT NULL DEFAULT false,
   PRIMARY KEY (x, y, z, layer),
   -- Make sure tile is within TMS bounds
   CHECK (x >= 0 AND y >= 0 AND z >= 0 AND x < 2^z AND y < 2^z)
