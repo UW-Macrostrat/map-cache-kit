@@ -1,3 +1,5 @@
+from http.client import HTTPException
+
 from typer import Typer
 from macrostrat.database import Database
 from dotenv import load_dotenv
@@ -6,10 +8,15 @@ from pathlib import Path
 from rich import print
 import morecantile
 from morecantile import Tile
+from httpx import get
+from time import sleep
+from random import uniform
 
 load_dotenv()
 
 db = Database(environ["MAP_CACHE_DATABASE_URL"])
+
+mapbox_token = environ["MAPBOX_API_TOKEN"]
 
 cli = Typer()
 
@@ -31,7 +38,7 @@ def regions():
 tms = morecantile.tms.get("WebMercatorQuad")
 
 @cli.command("region")
-def get_region(name: str, *, max_zoom: int = None):
+def get_region(name: str, *, max_zoom: int = None, download: bool = False):
     id = None
     if name.isdigit():
         id = int(name)
@@ -60,6 +67,70 @@ def get_region(name: str, *, max_zoom: int = None):
     n_tiles = sum(2**i for i in range(dz+1))
     _print_val("Tiles per layer", n_tiles)
 
+    if not download:
+        return
+
+    layers = db.run_query("SELECT id, name, url_pattern FROM tile_cache.layer").fetchall()
+
+    for layer in layers:
+        download_layer(parent, layer, min_zoom, max_zoom)
+
+def download_layer(parent, layer, min_zoom, max_zoom):
+    tiles = list(tile_iterator(parent, min_zoom, max_zoom))
+    n_tiles = len(tiles)
+    successes = 0
+    failures = 0
+    already_downloaded = 0
+    for i, tile in enumerate(tiles):
+        print(f"{layer.name} tile {tile.z}/{tile.x}/{tile.y}")
+        res = download_tile(tile, layer)
+        if res is None:
+            already_downloaded += 1
+        elif res:
+            successes += 1
+        else:
+            failures += 1
+        if i % 10 == 0:
+            print(f"{i} of {n_tiles} tiles processed")
+            print(f"successes: {successes}, failures: {failures}, already downloaded: {already_downloaded}")
+
+def download_tile(tile: Tile, layer):
+    # Check if the tile is already in the database
+    res = db.run_query("""
+    SELECT 1
+    FROM tile_cache.tile
+    WHERE layer = :layer_id AND z = :z AND x = :x AND y = :y
+    """, dict(layer_id=layer.id, z=tile.z, x=tile.x, y=tile.y)).fetchone()
+    if res is not None:
+        return None
+
+    try:
+        url = layer.url_pattern.format(z=tile.z, x=tile.x, y=tile.y)
+        res = get(url, params={"access_token": mapbox_token}, timeout=30)
+        # Get the data as bytes
+        data = res.content
+        # Check if the content is zipped
+        is_zipped = data[:2] == b"\x1f\x8b"
+
+        db.run_sql("""
+            INSERT INTO tile_cache.tile (layer, z, x, y, data, compressed)
+            VALUES (:layer_id, :z, :x, :y, :data, :is_zipped)
+            """,
+            dict(layer_id=layer.id, z=tile.z, x=tile.x, y=tile.y, data=data, is_zipped=is_zipped)
+        )
+        db.session.commit()
+
+        # Wait a random amount of time to avoid rate limiting
+        sleep(uniform(0.2, 1))
+        return True
+    except HTTPException as e:
+        print(f"Failed to download tile: {e}")
+        return False
+
+
+
+
+
 def get_parent_tile(region_id: int):
     res = db.run_query("""
     SELECT (tile_utils.parent_tile(geometry)).*
@@ -77,3 +148,15 @@ def _print_info(row):
 
 def _print_val(name, value):
     print(f"[dim]{name}:[/dim] {value}")
+
+def tile_iterator(tile: Tile, min_zoom: int, max_zoom: int):
+    # Start with underscaled tiles, if there are any
+    for z in range(min_zoom, max_zoom+1):
+        if z < tile.z:
+            yield tms.parent(tile, zoom=z)
+        if z == tile.z:
+            yield tile
+        else:
+            yield from tms.children(tile, zoom=z)
+
+
