@@ -1,6 +1,6 @@
 INSERT INTO tile_cache.layer (name, url_pattern, format, content_type)
 VALUES ('mapbox-terrain-dem',
-        'https://api.mapbox.com/raster/v1/mapbox.mapbox-terrain-dem-v1/{z}/{x}/{y}',
+        'https://api.mapbox.com/raster/v1/mapbox.mapbox-terrain-dem-v1/{z}/{x}/{y}.png',
         'png',
         'image/png'),
        ('mapbox-streets-v8',

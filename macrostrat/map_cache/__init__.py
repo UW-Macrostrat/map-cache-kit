@@ -70,9 +70,13 @@ def get_region(name: str, *, max_zoom: int = None, download: bool = False):
     if not download:
         return
 
-    layers = db.run_query("SELECT id, name, url_pattern FROM tile_cache.layer").fetchall()
+    layers = db.run_query("SELECT id, name, url_pattern, format FROM tile_cache.layer").fetchall()
+
+    # Multithreaded download
 
     for layer in layers:
+        if layer.name == "mapbox-satellite":
+            max_zoom = 10
         download_layer(parent, layer, min_zoom, max_zoom)
 
 def download_layer(parent, layer, min_zoom, max_zoom):
@@ -106,11 +110,13 @@ def download_tile(tile: Tile, layer):
 
     try:
         url = layer.url_pattern.format(z=tile.z, x=tile.x, y=tile.y)
+        print(url)
         res = get(url, params={"access_token": mapbox_token}, timeout=30)
         # Get the data as bytes
         data = res.content
         # Check if the content is zipped
         is_zipped = data[:2] == b"\x1f\x8b"
+
 
         db.run_sql("""
             INSERT INTO tile_cache.tile (layer, z, x, y, data, compressed)
