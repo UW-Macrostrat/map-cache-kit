@@ -1,0 +1,3 @@
+[submodule "deps/tile-utils"]
+	path = deps/tile-utils
+	url = https://github.com/UW-Macrostrat/postgis-tile-utils.git

@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "macrostrat-map-cache"
+name = "macrostrat.map-cache"
 version = "0.1.0"
 description = "A system for locally caching maps"
 authors = ["Daven Quinn <code@davenquinn.com>"]
@@ -9,8 +9,16 @@ packages = [{include = "macrostrat"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
+typer = "^0.15.1"
+morecantile = "^6.2.0"
+macrostrat-database = "^3.5.4"
+fastapi = "^0.115.6"
+python-dotenv = "^1.0.1"
 
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+cache = "macrostrat.map_cache:cli"
