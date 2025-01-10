@@ -1,6 +1,7 @@
-from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPException
-from asyncio import gather, get_event_loop, sleep, run
+import asyncio
+from asyncio import gather,  sleep, run
+import httpx
 
 from typer import Typer
 from macrostrat.database import Database
@@ -77,18 +78,24 @@ def get_region(name: str, *, max_zoom: int = None, download: bool = False):
 
 async def get_all_layers(parent, min_zoom, max_zoom):
     layers = db.run_query("SELECT id, name, url_pattern, format FROM tile_cache.layer").fetchall()
-    await gather(*[download_layer(parent, layer, min_zoom, max_zoom) for layer in layers])
+    async with httpx.AsyncClient(limits=httpx.Limits(max_connections=4)) as client:
+        tasks = []
 
+        for layer in layers:
+            task = asyncio.create_task(download_layer(client, parent, layer, min_zoom, max_zoom))
+            tasks.append(task)
 
-async def download_layer(parent, layer, min_zoom, max_zoom):
-    async with AsyncClient() as client:
+        print("Tasks:", tasks)
+        await gather(*tasks)
+
+async def download_layer(client, parent, layer, min_zoom, max_zoom):
         tiles = list(tile_iterator(parent, min_zoom, max_zoom))
         n_tiles = len(tiles)
         successes = 0
         failures = 0
         already_downloaded = 0
         for i, tile in enumerate(tiles):
-            print(f"{layer.name} tile {tile.z}/{tile.x}/{tile.y}")
+            #print(f"{layer.name} tile {tile.z}/{tile.x}/{tile.y}")
             res = await download_tile(client, tile, layer)
             if res is None:
                 already_downloaded += 1
