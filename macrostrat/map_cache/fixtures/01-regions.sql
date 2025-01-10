@@ -13,5 +13,5 @@ CREATE TABLE IF NOT EXISTS tile_cache.region (
 
 
 INSERT INTO tile_cache.region (name, geometry, min_zoom, max_zoom)
-VALUES ('world', ST_MakeEnvelope(-180, -85, 180, 85, 4326), 0, 6)
+VALUES ('world', ST_MakeEnvelope(-180, -85, 180, 85, 4326), 0, 5)
 ON CONFLICT (name) DO NOTHING;

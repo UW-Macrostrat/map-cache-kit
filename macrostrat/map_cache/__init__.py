@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPException
+from asyncio import gather, get_event_loop, sleep, run
 
 from typer import Typer
 from macrostrat.database import Database
@@ -8,8 +10,7 @@ from pathlib import Path
 from rich import print
 import morecantile
 from morecantile import Tile
-from httpx import get
-from time import sleep
+from httpx import get, AsyncClient
 from random import uniform
 
 load_dotenv()
@@ -70,35 +71,36 @@ def get_region(name: str, *, max_zoom: int = None, download: bool = False):
     if not download:
         return
 
+    run(get_all_layers(parent, min_zoom, max_zoom))
+
+# Download layers in parallel
+
+async def get_all_layers(parent, min_zoom, max_zoom):
     layers = db.run_query("SELECT id, name, url_pattern, format FROM tile_cache.layer").fetchall()
+    await gather(*[download_layer(parent, layer, min_zoom, max_zoom) for layer in layers])
 
-    # Multithreaded download
 
-    for layer in layers:
-        if layer.name == "mapbox-satellite":
-            max_zoom = 10
-        download_layer(parent, layer, min_zoom, max_zoom)
+async def download_layer(parent, layer, min_zoom, max_zoom):
+    async with AsyncClient() as client:
+        tiles = list(tile_iterator(parent, min_zoom, max_zoom))
+        n_tiles = len(tiles)
+        successes = 0
+        failures = 0
+        already_downloaded = 0
+        for i, tile in enumerate(tiles):
+            print(f"{layer.name} tile {tile.z}/{tile.x}/{tile.y}")
+            res = await download_tile(client, tile, layer)
+            if res is None:
+                already_downloaded += 1
+            elif res:
+                successes += 1
+            else:
+                failures += 1
+            if i % 10 == 0:
+                print(f"{i} of {n_tiles} tiles processed")
+                print(f"successes: {successes}, failures: {failures}, already downloaded: {already_downloaded}")
 
-def download_layer(parent, layer, min_zoom, max_zoom):
-    tiles = list(tile_iterator(parent, min_zoom, max_zoom))
-    n_tiles = len(tiles)
-    successes = 0
-    failures = 0
-    already_downloaded = 0
-    for i, tile in enumerate(tiles):
-        print(f"{layer.name} tile {tile.z}/{tile.x}/{tile.y}")
-        res = download_tile(tile, layer)
-        if res is None:
-            already_downloaded += 1
-        elif res:
-            successes += 1
-        else:
-            failures += 1
-        if i % 10 == 0:
-            print(f"{i} of {n_tiles} tiles processed")
-            print(f"successes: {successes}, failures: {failures}, already downloaded: {already_downloaded}")
-
-def download_tile(tile: Tile, layer):
+async def download_tile(client: AsyncClient, tile: Tile, layer):
     # Check if the tile is already in the database
     res = db.run_query("""
     SELECT 1
@@ -111,7 +113,7 @@ def download_tile(tile: Tile, layer):
     try:
         url = layer.url_pattern.format(z=tile.z, x=tile.x, y=tile.y)
         print(url)
-        res = get(url, params={"access_token": mapbox_token}, timeout=30)
+        res = await client.get(url, params={"access_token": mapbox_token}, timeout=30)
         # Get the data as bytes
         data = res.content
         # Check if the content is zipped
@@ -127,7 +129,7 @@ def download_tile(tile: Tile, layer):
         db.session.commit()
 
         # Wait a random amount of time to avoid rate limiting
-        sleep(uniform(0.2, 1))
+        await sleep(uniform(0.2, 1))
         return True
     except HTTPException as e:
         print(f"Failed to download tile: {e}")
