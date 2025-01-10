@@ -40,7 +40,7 @@ def regions():
 tms = morecantile.tms.get("WebMercatorQuad")
 
 @cli.command("region")
-def get_region(name: str, *, max_zoom: int = None, download: bool = False):
+def get_region(name: str, *, max_zoom: int = None, download: bool = False, layer: list[str] = None):
     id = None
     if name.isdigit():
         id = int(name)
@@ -66,18 +66,35 @@ def get_region(name: str, *, max_zoom: int = None, download: bool = False):
     _print_val("Zoom range", f"{min_zoom}-{max_zoom}")
 
     dz = max_zoom - min_zoom
-    n_tiles = sum(2**i for i in range(dz+1))
+    n_tiles = len(list(tile_iterator(parent, min_zoom, max_zoom)))
     _print_val("Tiles per layer", n_tiles)
 
     if not download:
         return
 
-    run(get_all_layers(parent, min_zoom, max_zoom))
+    run(get_all_layers(parent, min_zoom, max_zoom, layer))
+
+@cli.command("info")
+def get_size():
+    layers = db.run_query("SELECT id, name, url_pattern, format FROM tile_cache.layer").fetchall()
+    print("Layers:")
+    for layer in layers:
+        print(f"{layer.name} ({layer.format})")
+
+
+    res = db.run_query("""
+    SELECT count(*) n_tiles, sum(length(data)) total_size FROM tile_cache.tile
+    """).one()
+    _print_val("Number of tiles", res.n_tiles)
+    _print_val("Total size", f"{res.total_size/1024/1024:.2f} MB")
 
 # Download layers in parallel
 
-async def get_all_layers(parent, min_zoom, max_zoom):
+async def get_all_layers(parent, min_zoom, max_zoom, _layers):
     layers = db.run_query("SELECT id, name, url_pattern, format FROM tile_cache.layer").fetchall()
+    if _layers is not None:
+        # Filter layers if specified
+        layers = [layer for layer in layers if layer.name in _layers]
     async with httpx.AsyncClient(limits=httpx.Limits(max_connections=4)) as client:
         tasks = []
 
@@ -88,26 +105,33 @@ async def get_all_layers(parent, min_zoom, max_zoom):
         await gather(*tasks)
 
 async def download_layer(client, parent, layer, min_zoom, max_zoom):
-        tiles = set(tile_iterator(parent, min_zoom, max_zoom))
-        existing = get_existing_tiles(layer.id, min_zoom, max_zoom)
-        n_tiles = len(tiles)
-        successes = 0
-        failures = 0
+    print("Downloading layer", layer.name)
 
-        tiles = list(tiles - existing)
-        already_downloaded = len(existing)
-        for i, tile in enumerate(tiles):
-            #print(f"{layer.name} tile {tile.z}/{tile.x}/{tile.y}")
-            res = await download_tile(client, tile, layer)
-            if res is None:
-                already_downloaded += 1
-            elif res:
-                successes += 1
-            else:
-                failures += 1
-            if i % 10 == 0:
-                print(f"{i} of {n_tiles} tiles processed")
-                print(f"successes: {successes}, failures: {failures}, already downloaded: {already_downloaded}")
+    tiles = set(tile_iterator(parent, min_zoom, max_zoom))
+    existing = get_existing_tiles(layer.id, min_zoom, max_zoom)
+    n_tiles = len(tiles)
+    successes = 0
+    failures = 0
+    intersection = tiles & existing
+    already_downloaded = len(intersection)
+
+    tiles = list(tiles - existing)
+    to_download = len(tiles)
+
+    print(f"{already_downloaded} of {n_tiles} tiles already downloaded")
+
+    for i, tile in enumerate(tiles):
+        #print(f"{layer.name} tile {tile.z}/{tile.x}/{tile.y}")
+        res = await download_tile(client, tile, layer)
+        if res is None:
+            already_downloaded += 1
+        elif res:
+            successes += 1
+        else:
+            failures += 1
+        if i % 10 == 0:
+            print(f"{i} of {to_download} tiles processed")
+            print(f"successes: {successes}, failures: {failures}, already downloaded: {already_downloaded}")
 
 def get_existing_tiles(layer_id, min_zoom, max_zoom):
     res = db.run_query("""SELECT z, x, y FROM tile_cache.tile WHERE layer = :layer_id AND z >= :min_zoom AND z <= :max_zoom""",
@@ -148,7 +172,6 @@ async def download_tile(client: AsyncClient, tile: Tile, layer):
     except HTTPException as e:
         print(f"Failed to download tile: {e}")
         return False
-
 
 
 
