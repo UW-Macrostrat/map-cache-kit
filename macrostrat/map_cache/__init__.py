@@ -85,15 +85,17 @@ async def get_all_layers(parent, min_zoom, max_zoom):
             task = asyncio.create_task(download_layer(client, parent, layer, min_zoom, max_zoom))
             tasks.append(task)
 
-        print("Tasks:", tasks)
         await gather(*tasks)
 
 async def download_layer(client, parent, layer, min_zoom, max_zoom):
-        tiles = list(tile_iterator(parent, min_zoom, max_zoom))
+        tiles = set(tile_iterator(parent, min_zoom, max_zoom))
+        existing = get_existing_tiles(layer.id, min_zoom, max_zoom)
         n_tiles = len(tiles)
         successes = 0
         failures = 0
-        already_downloaded = 0
+
+        tiles = list(tiles - existing)
+        already_downloaded = len(existing)
         for i, tile in enumerate(tiles):
             #print(f"{layer.name} tile {tile.z}/{tile.x}/{tile.y}")
             res = await download_tile(client, tile, layer)
@@ -107,6 +109,11 @@ async def download_layer(client, parent, layer, min_zoom, max_zoom):
                 print(f"{i} of {n_tiles} tiles processed")
                 print(f"successes: {successes}, failures: {failures}, already downloaded: {already_downloaded}")
 
+def get_existing_tiles(layer_id, min_zoom, max_zoom):
+    res = db.run_query("""SELECT z, x, y FROM tile_cache.tile WHERE layer = :layer_id AND z >= :min_zoom AND z <= :max_zoom""",
+                       dict(layer_id=layer_id, min_zoom=min_zoom, max_zoom=max_zoom)).fetchall()
+    return set(Tile(row.x, row.y, row.z) for row in res)
+
 async def download_tile(client: AsyncClient, tile: Tile, layer):
     # Check if the tile is already in the database
     res = db.run_query("""
@@ -119,8 +126,8 @@ async def download_tile(client: AsyncClient, tile: Tile, layer):
 
     try:
         url = layer.url_pattern.format(z=tile.z, x=tile.x, y=tile.y)
-        print(url)
         res = await client.get(url, params={"access_token": mapbox_token}, timeout=30)
+        print(url)
         # Get the data as bytes
         data = res.content
         # Check if the content is zipped
