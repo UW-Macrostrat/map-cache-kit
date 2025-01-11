@@ -16,6 +16,7 @@ from random import uniform
 from urllib import parse
 from typer import Option
 import json
+from typing_extensions import Annotated
 
 load_dotenv()
 
@@ -93,8 +94,27 @@ def get_size():
 
 # Download layers in parallel
 
+@cli.command("fonts")
+def get_fonts(download: bool = False):
+    families = [
+        "DIN Pro Medium,Arial Unicode MS Regular",
+        "DIN Pro Italic,Arial Unicode MS Regular",
+        "Merriweather Regular,Arial Unicode MS Regular",
+        "Merriweather Light,Arial Unicode MS Regular"
+    ]
+    urls = []
+    for fontStack in families:
+        for i in range(8):
+            _range = f"{i*256}-{(i+1)*256-1}"
+            urls.append(f"https://api.mapbox.com/fonts/v1/mapbox/{fontStack}/{_range}.pbf?access_token=" + mapbox_token)
+
+    get_files(urls, download=download)
+
+
+
+
 @cli.command("files")
-def get_files(urls: list[str] = None, download: bool = False, url_list: Path = Option(None, "--url-list", help="Path to a file with a list of URLs")):
+def get_files(urls: list[str] = None, download: bool = False, url_list: Annotated[Path, Option( "--url-list", help="Path to a file with a list of URLs")] = None):
     """Get arbitrary files and save them to the database."""
     if urls is None:
         urls = []
@@ -107,12 +127,7 @@ def get_files(urls: list[str] = None, download: bool = False, url_list: Path = O
 
     if not download:
         for url in urls:
-            _url = _remove_querystring(url)
-            res = _check_file_is_downloaded(_url)
-            if res is not None:
-                print(f"[green]ok[/]      [dim]{_url}")
-            else:
-                print(f"[red]missing[/] [dim]{_url}")
+            print_status(url)
 
         print("[dim]Use --download to download")
         return
@@ -142,19 +157,25 @@ def _check_file_is_downloaded(url):
     res = db.run_query("SELECT 1 FROM tile_cache.file WHERE url = :url", dict(url=url)).fetchone()
     return res is not None
 
+def print_status(url):
+    _url = _remove_querystring(url)
+    res = _check_file_is_downloaded(_url)
+    if res:
+        print(f"[green]exists[/]  [dim]{_url}")
+    else:
+        print(f"[red]missing[/] [dim]{_url}")
+    return res
+
 async def download_file(client, base_url):
     # Strip off query parameters
     url = _remove_querystring(base_url)
 
-    res = _check_file_is_downloaded(url)
-    if res is not None:
-        print(f"{url}...already present")
+    exists = print_status(url)
+    if exists:
         return
-    else:
-        print(f"Downloading {url}")
 
     res = await client.get(base_url)
-    print(f"...{res.status_code}")
+    print(f"  [dim green]got it!")
 
     data = res.content
 
