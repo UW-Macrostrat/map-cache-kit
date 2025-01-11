@@ -101,9 +101,20 @@ def get_files(urls: list[str] = None, download: bool = False, url_list: Path = O
 
     if url_list is not None:
         with url_list.open() as f:
-            urls.extend(f.readlines())
+            urls.extend([l for l in f.readlines()])
+
+    urls = list(filter(lambda x: x is not None, (_strip_url(url) for url in urls)))
 
     if not download:
+        for url in urls:
+            _url = _remove_querystring(url)
+            res = _check_file_is_downloaded(_url)
+            if res is not None:
+                print(f"[green]ok[/]      [dim]{_url}")
+            else:
+                print(f"[red]missing[/] [dim]{_url}")
+
+        print("[dim]Use --download to download")
         return
 
     run(download_files(urls))
@@ -116,21 +127,33 @@ async def download_files(urls):
             tasks.append(task)
         await gather(*tasks)
 
+def _strip_url(url):
+    url = url.strip()
+    if url == "":
+        return None
+    return url
 
-async def download_file(client, url):
-    # Strip off query parameters
+def _remove_querystring(url):
     split_url = parse.urlsplit(url)
-    # Remove query string and replace with mapbox token
-    qs = "access_token=" + mapbox_token
-    url = parse.urlunsplit((split_url.scheme, split_url.netloc, split_url.path, qs, ""))
+    return parse.urlunsplit((split_url.scheme, split_url.netloc, split_url.path, "", ""))
 
+
+def _check_file_is_downloaded(url):
     res = db.run_query("SELECT 1 FROM tile_cache.file WHERE url = :url", dict(url=url)).fetchone()
-    print(url, end="")
-    if res is not None:
-        print(f"...already present")
-        return
+    return res is not None
 
-    res = await client.get(url)
+async def download_file(client, base_url):
+    # Strip off query parameters
+    url = _remove_querystring(base_url)
+
+    res = _check_file_is_downloaded(url)
+    if res is not None:
+        print(f"{url}...already present")
+        return
+    else:
+        print(f"Downloading {url}")
+
+    res = await client.get(base_url)
     print(f"...{res.status_code}")
 
     data = res.content
@@ -152,6 +175,8 @@ async def download_file(client, url):
         )
     )
     db.session.commit()
+
+
 
 def get_json(req):
     try:
