@@ -13,6 +13,8 @@ import morecantile
 from morecantile import Tile
 from httpx import get, AsyncClient
 from random import uniform
+from urllib import parse
+import json
 
 load_dotenv()
 
@@ -90,12 +92,93 @@ def get_size():
 
 # Download layers in parallel
 
+@cli.command("get-files")
+def get_files():
+    """Get extra files and save them to the database."""
+    requests_file = __here__ / "requests.txt"
+
+    with requests_file.open() as f:
+        urls = f.readlines()
+
+    run(download_files(urls))
+
+async def download_files(urls):
+    async with httpx.AsyncClient(limits=httpx.Limits(max_connections=8)) as client:
+        tasks = []
+        for url in urls:
+            task = asyncio.create_task(download_file(client, url))
+            tasks.append(task)
+        await gather(*tasks)
+
+
+async def download_file(client, url):
+    # Strip off query parameters
+    split_url = parse.urlsplit(url)
+    # Remove query string and replace with mapbox token
+    qs = "access_token=" + mapbox_token
+    url = parse.urlunsplit((split_url.scheme, split_url.netloc, split_url.path, qs, ""))
+
+    res = db.run_query("SELECT 1 FROM tile_cache.file WHERE url = :url", dict(url=url)).fetchone()
+    print(url, end="")
+    if res is not None:
+        print(f"...already present")
+        return
+
+    res = await client.get(url)
+    print(f"...{res.status_code}")
+
+    data = res.content
+
+    content_type = res.headers["Content-Type"]
+
+    db.run_sql("""
+        INSERT INTO tile_cache.file (url, data, json_data, content_type, format, compressed, hash)
+        VALUES (:url, :data, :json_data, :content_type, :format, :compressed, md5(:data)::uuid)
+        """,
+        dict(
+            url=url,
+            data=data,
+            content_type=content_type,
+            compressed=_is_zipped(data),
+            json_data=get_json(res),
+            format=infer_format(url, data, content_type),
+
+        )
+    )
+    db.session.commit()
+
+def get_json(req):
+    try:
+        return json.dumps(req.json())
+    except ValueError:
+        return None
+
+def infer_format(url, data, content_type):
+    """Infer the format of the file."""
+    if content_type == "application/json":
+        return "json"
+    if content_type == "application/vnd.mapbox-vector-tile":
+        return "mvt"
+    if content_type == "image/png":
+        return "png"
+    if content_type == "image/jpeg":
+        return "jpeg"
+    if content_type == "image/webp":
+        return "webp"
+    if content_type == "application/x-protobuf":
+        return "pbf"
+
+
+
+
+# Download layers in parallel
+
 async def get_all_layers(parent, min_zoom, max_zoom, _layers):
     layers = db.run_query("SELECT id, name, url_pattern, format FROM tile_cache.layer").fetchall()
     if _layers is not None:
         # Filter layers if specified
         layers = [layer for layer in layers if layer.name in _layers]
-    async with httpx.AsyncClient(limits=httpx.Limits(max_connections=4)) as client:
+    async with httpx.AsyncClient(limits=httpx.Limits(max_connections=8)) as client:
         tasks = []
 
         for layer in layers:
@@ -154,15 +237,12 @@ async def download_tile(client: AsyncClient, tile: Tile, layer):
         print(url)
         # Get the data as bytes
         data = res.content
-        # Check if the content is zipped
-        is_zipped = data[:2] == b"\x1f\x8b"
-
 
         db.run_sql("""
             INSERT INTO tile_cache.tile (layer, z, x, y, data, compressed)
             VALUES (:layer_id, :z, :x, :y, :data, :is_zipped)
             """,
-            dict(layer_id=layer.id, z=tile.z, x=tile.x, y=tile.y, data=data, is_zipped=is_zipped)
+            dict(layer_id=layer.id, z=tile.z, x=tile.x, y=tile.y, data=data, is_zipped=_is_zipped(data[:2]))
         )
         db.session.commit()
 
@@ -174,6 +254,8 @@ async def download_tile(client: AsyncClient, tile: Tile, layer):
         return False
 
 
+def _is_zipped(data):
+    return data[:2] == b"\x1f\x8b"
 
 
 def get_parent_tile(region_id: int):
