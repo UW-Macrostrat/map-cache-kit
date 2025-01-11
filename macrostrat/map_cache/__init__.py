@@ -14,6 +14,7 @@ from morecantile import Tile
 from httpx import get, AsyncClient
 from random import uniform
 from urllib import parse
+from typer import Option
 import json
 
 load_dotenv()
@@ -92,13 +93,18 @@ def get_size():
 
 # Download layers in parallel
 
-@cli.command("get-files")
-def get_files():
-    """Get extra files and save them to the database."""
-    requests_file = __here__ / "requests.txt"
+@cli.command("files")
+def get_files(urls: list[str] = None, download: bool = False, url_list: Path = Option(None, "--url-list", help="Path to a file with a list of URLs")):
+    """Get arbitrary files and save them to the database."""
+    if urls is None:
+        urls = []
 
-    with requests_file.open() as f:
-        urls = f.readlines()
+    if url_list is not None:
+        with url_list.open() as f:
+            urls.extend(f.readlines())
+
+    if not download:
+        return
 
     run(download_files(urls))
 
