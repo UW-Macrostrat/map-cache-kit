@@ -18,16 +18,11 @@ from typer import Option
 import json
 from typing_extensions import Annotated
 
-load_dotenv()
-
-db = Database(environ["MAP_CACHE_DATABASE_URL"])
-
-mapbox_token = environ["MAPBOX_API_TOKEN"]
+from .config import db, mapbox_token, tms
 
 cli = Typer()
 
 __here__ = Path(__file__).parent
-
 
 @cli.command()
 def create():
@@ -40,8 +35,6 @@ def regions():
     res = db.run_query("SELECT id, name FROM tile_cache.region").fetchall()
     for row in res:
         _print_info(row)
-
-tms = morecantile.tms.get("WebMercatorQuad")
 
 @cli.command("region")
 def get_region(name: str, *, max_zoom: int = None, download: bool = False, layer: list[str] = None):
@@ -114,7 +107,11 @@ def get_fonts(download: bool = False):
 
 
 @cli.command("files")
-def get_files(urls: list[str] = None, download: bool = False, url_list: Annotated[Path, Option( "--url-list", help="Path to a file with a list of URLs")] = None):
+def get_files(
+    urls: list[str] = None,
+    download: bool = False,
+    url_list: Annotated[Path, Option( "--url-list", help="Path to a file with a list of URLs")] = None
+):
     """Get arbitrary files and save them to the database."""
     if urls is None:
         urls = []
