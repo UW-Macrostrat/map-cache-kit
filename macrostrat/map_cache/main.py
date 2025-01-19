@@ -1,13 +1,13 @@
-import base64
-
-
 from fastapi import FastAPI, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import db
-from macrostrat.utils import get_logger
+from macrostrat.utils import get_logger, setup_stderr_logs
+from re import compile
 
 log = get_logger(__name__)
+
+setup_stderr_logs(__name__)
 
 app = FastAPI()
 
@@ -40,3 +40,53 @@ def file(request: Request):
         return Response("Not found in cache", status_code=404)
 
     return Response(res.data, media_type=res.content_type)
+
+exp = compile(r"/\d+/\d+/\d+")
+
+@app.get("/tiles/{route:path}")
+def tile(request: Request, route: str):
+    q = request.query_params
+    domain = q.get("x-cache-domain")
+
+    url = domain + "/" + route
+
+    url1 = transform_request_to_cache_key(url)
+
+    log.info(url)
+    log.info(url1)
+
+    matches = exp.findall(url)
+    assert len(matches) == 1
+
+    match = matches[0]
+
+    z,x,y = [int(r) for r in match[1:].split("/")]
+
+    # Find the appropriate layer in the database if it exists
+    res = db.run_query("SELECT id, content_type FROM tile_cache.layer WHERE url_pattern = :pattern", dict(pattern=url1)).fetchone()
+    layer_id = res.id
+    content_type = res.content_type
+
+    tile_data = db.run_query("SELECT data FROM tile_cache.tile WHERE layer = :layer AND x = :x AND y = :y AND z = :z", dict(
+        layer = layer_id,
+        x = x,
+        y = y,
+        z = z
+    )).fetchone()
+    data = tile_data.data
+
+    n = len(data)
+    log.info(f"Length: {n}")
+
+    return Response(data, media_type=content_type)
+
+
+def transform_request_to_cache_key(url):
+    """Get a cache key to try"""
+    url1 = exp.sub("/{z}/{x}/{y}", url)
+
+    if url1.endswith(".webp"):
+        url1 = url1[:-5]+ ".png"
+
+    return url1
+

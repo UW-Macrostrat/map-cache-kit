@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS tile_cache.tile (
   last_used timestamp without time zone NOT NULL DEFAULT now(),
   /* TODO: we could cache each layer separately and merge in the tile server */
   --layers text[] NOT NULL,
-  data bytea NOT NULL,
+  data bytea,
   compressed boolean NOT NULL DEFAULT false,
   PRIMARY KEY (x, y, z, layer),
   -- Make sure tile is within TMS bounds
