@@ -3,7 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import db
 from macrostrat.utils import get_logger, setup_stderr_logs
+from pydantic import BaseModel
 from re import compile
+from random import randint
 
 log = get_logger(__name__)
 
@@ -87,6 +89,8 @@ def transform_request_to_cache_key(url):
 
     if url1.endswith(".webp"):
         url1 = url1[:-5]+ ".png"
+
+    # If we have terrain-rgb, fall back to
 
     return url1
 

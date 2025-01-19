@@ -17,6 +17,7 @@ from urllib import parse
 from typer import Option
 import json
 from typing_extensions import Annotated
+from .utils import construct_sku_token
 
 from .config import db, mapbox_token, tms
 
@@ -247,14 +248,23 @@ async def download_layer(client, parent, layer, min_zoom, max_zoom):
     intersection = tiles & existing
     already_downloaded = len(intersection)
 
+    params = dict(
+        access_token = mapbox_token
+    )
+
     tiles = list(tiles - existing)
     to_download = len(tiles)
+
+
+    if layer.name == "mapbox-terrain-dem":
+        # Add an SKU token
+        params["sku"] = construct_sku_token()
 
     print(f"{already_downloaded} of {n_tiles} tiles already downloaded")
 
     for i, tile in enumerate(tiles):
         #print(f"{layer.name} tile {tile.z}/{tile.x}/{tile.y}")
-        res = await download_tile(client, tile, layer)
+        res = await download_tile(client, tile, layer, params=params)
         if res is None:
             already_downloaded += 1
         elif res:
@@ -264,13 +274,16 @@ async def download_layer(client, parent, layer, min_zoom, max_zoom):
         if i % 10 == 0:
             print(f"{i} of {to_download} tiles processed")
             print(f"successes: {successes}, failures: {failures}, already downloaded: {already_downloaded}")
+        if i % 150 == 0:
+            # Refresh the session token
+            params["sku"] = construct_sku_token()
 
 def get_existing_tiles(layer_id, min_zoom, max_zoom):
     res = db.run_query("""SELECT z, x, y FROM tile_cache.tile WHERE layer = :layer_id AND z >= :min_zoom AND z <= :max_zoom""",
                        dict(layer_id=layer_id, min_zoom=min_zoom, max_zoom=max_zoom)).fetchall()
     return set(Tile(row.x, row.y, row.z) for row in res)
 
-async def download_tile(client: AsyncClient, tile: Tile, layer):
+async def download_tile(client: AsyncClient, tile: Tile, layer, params=None):
     # Check if the tile is already in the database
     res = db.run_query("""
     SELECT 1
@@ -282,7 +295,7 @@ async def download_tile(client: AsyncClient, tile: Tile, layer):
 
     try:
         url = layer.url_pattern.format(z=tile.z, x=tile.x, y=tile.y)
-        res = await client.get(url, params={"access_token": mapbox_token}, timeout=30)
+        res = await client.get(url, params=params, timeout=30)
         print(url)
         # Get the data as bytes
         data = res.content
