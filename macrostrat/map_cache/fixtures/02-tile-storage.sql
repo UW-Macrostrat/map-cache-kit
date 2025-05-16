@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS tile_cache.tile (
   last_used timestamp without time zone NOT NULL DEFAULT now(),
   /* TODO: we could cache each layer separately and merge in the tile server */
   --layers text[] NOT NULL,
-  data bytea NOT NULL,
+  data bytea,
   compressed boolean NOT NULL DEFAULT false,
   PRIMARY KEY (x, y, z, layer),
   -- Make sure tile is within TMS bounds
@@ -49,3 +49,22 @@ SELECT
   created,
   last_used
 FROM tile_cache.tile;
+
+/*
+  Storage for non-tile associated data. This can be potentially used for fonts
+  (via mapbox), sprites, stratigraphic column data files, etc.
+*/
+DROP TABLE IF EXISTS tile_cache.file;
+CREATE TABLE IF NOT EXISTS tile_cache.file (
+  id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  url text NOT NULL UNIQUE,
+  hash uuid NOT NULL,
+  data bytea NOT NULL,
+  json_data jsonb,
+  created timestamp without time zone NOT NULL DEFAULT now(),
+  last_used timestamp without time zone NOT NULL DEFAULT now(),
+  format text,
+  content_type text,
+  compressed boolean NOT NULL DEFAULT false,
+  type text
+);
