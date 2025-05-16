@@ -22,10 +22,10 @@ The main goal will be to support a flexible map backend for multiple clients.
 ## Main goals
 
 - Mapbox has great caching utilities, but in recent versions of their system they are moving towards
-  a more proprietary model is intentionally geared towards their own caching services (which are not documented
-  for external use.
+  a more proprietary model that is geared towards their own caching services (which are not documented
+  for external use.)
 - Mapbox caching services are tied to platform-specific native SDKs and cannot be directly used with
-  other frontends, most notably web-based systems like Mapbox GL JS.
+  other frontends, most notably web-based systems like Mapbox GL JS, Maplibre GL JS, etc.
 - It is desirable to support on-device merging of data from multiple sources (e.g., local in-progress and global maps)
 
 ## To do

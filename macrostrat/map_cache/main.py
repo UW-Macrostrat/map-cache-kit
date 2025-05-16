@@ -45,6 +45,12 @@ def file(request: Request):
 
 exp = compile(r"/\d+/\d+/\d+")
 
+class CacheKey(BaseModel):
+    x: int
+    y: int
+    z: int
+    url_template: str
+
 @app.get("/tiles/{route:path}")
 def tile(request: Request, route: str):
     q = request.query_params
@@ -52,10 +58,19 @@ def tile(request: Request, route: str):
 
     url = domain + "/" + route
 
-    url1 = transform_request_to_cache_key(url)
+    key = transform_request_to_cache_key(url)
 
-    log.info(url)
-    log.info(url1)
+    return get_response(key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         )
+
+
+def transform_request_to_cache_key(url) -> CacheKey:
+    """Get a cache key to try"""
+    url1 = exp.sub("/{z}/{x}/{y}", url)
+
+    if url1.endswith(".webp"):
+        url1 = url1[:-5]+ ".png"
+
+    # If we have terrain-dem, fall back to terrain rgb
 
     matches = exp.findall(url)
     assert len(matches) == 1
@@ -64,16 +79,22 @@ def tile(request: Request, route: str):
 
     z,x,y = [int(r) for r in match[1:].split("/")]
 
+    return CacheKey(
+        x=x, y=y, z=z, url_template=url1
+    )
+
+
+def get_response(data: CacheKey):
     # Find the appropriate layer in the database if it exists
-    res = db.run_query("SELECT id, content_type FROM tile_cache.layer WHERE url_pattern = :pattern", dict(pattern=url1)).fetchone()
+    res = db.run_query("SELECT id, content_type FROM tile_cache.layer WHERE url_pattern = :pattern", dict(pattern=data.url_template)).fetchone()
     layer_id = res.id
     content_type = res.content_type
 
     tile_data = db.run_query("SELECT data FROM tile_cache.tile WHERE layer = :layer AND x = :x AND y = :y AND z = :z", dict(
         layer = layer_id,
-        x = x,
-        y = y,
-        z = z
+        x = data.x,
+        y = data.y,
+        z = data.z
     )).fetchone()
     data = tile_data.data
 
@@ -81,16 +102,3 @@ def tile(request: Request, route: str):
     log.info(f"Length: {n}")
 
     return Response(data, media_type=content_type)
-
-
-def transform_request_to_cache_key(url):
-    """Get a cache key to try"""
-    url1 = exp.sub("/{z}/{x}/{y}", url)
-
-    if url1.endswith(".webp"):
-        url1 = url1[:-5]+ ".png"
-
-    # If we have terrain-rgb, fall back to
-
-    return url1
-
