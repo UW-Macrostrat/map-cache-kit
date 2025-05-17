@@ -3,6 +3,7 @@ Packages
 xcuserdata
 *.xcodeproj
 DerivedData/
+Data/
 .DS_Store
 db.sqlite
 .swiftpm
