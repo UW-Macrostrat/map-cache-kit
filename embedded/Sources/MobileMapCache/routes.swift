@@ -11,5 +11,6 @@ func routes(_ app: Application) throws {
   }
 
   try app.register(collection: CacheRegionsController())
+  try app.register(collection: CachedTileController())
   
 }

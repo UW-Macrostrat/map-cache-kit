@@ -9,8 +9,6 @@ import Vapor
 import FluentSQL
 
 struct CachedTileController: RouteCollection {
-  let cacheMode: MapCachePriority
-  
   func boot(routes: any RoutesBuilder) throws {
     let tiles = routes.grouped("tiles")
     
@@ -23,6 +21,8 @@ struct CachedTileController: RouteCollection {
     guard let cacheDomain = req.headers.first(name: "x-cache-domain") else {
       throw Abort(.badRequest, reason: "No cache domain provided")
     }
+    
+    let cacheMode = try getCacheMode(req: req)
     
     // Get path from query argument
     guard let path: String = try req.query.get(at: "x-cache-path") else {
@@ -40,14 +40,14 @@ struct CachedTileController: RouteCollection {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
     }
         
-    if self.cacheMode != .network {
+    if cacheMode != .network {
       if let cachedResponse = try await getCachedResource(from: db, url: url1) {
         return Response(status: .ok, headers: [
           "Content-Type": cachedResponse.contentType ?? "application/x-protobuf",
           "Cache-Control": "public, max-age=31536000",
           "X-Cache": "hit",
         ], body: .init(data: cachedResponse.data))
-      } else if self.cacheMode == .cache {
+      } else if cacheMode == .cache {
         throw Abort(.notFound, reason: "Cache miss")
       }
     }
@@ -59,7 +59,7 @@ struct CachedTileController: RouteCollection {
     
     return Response(status: .temporaryRedirect, headers: [
       "Location": url1.absoluteString,
-      "X-Cache": self.cacheMode == .network ? "bypass" : "miss",
+      "X-Cache": cacheMode == .network ? "bypass" : "miss",
     ], body: .empty)
   }
 }
@@ -76,6 +76,18 @@ struct ResourceRow: Content {
   let compressed: Bool
 }
   
+func getCacheMode(req: Request) throws -> MapCachePriority {
+  guard let cacheMode = req.headers.first(name: "x-cache-mode") else {
+    return .cacheThenNetwork
+  }
+  
+  let mode = MapCachePriority(rawValue: cacheMode.lowercased())
+  if let mode = mode {
+    return mode
+  }
+  throw Abort(.badRequest, reason: "Invalid cache mode \(cacheMode)")
+}
+
 
 func getCachedResource(from db: any SQLDatabase, url: URL, forceDownscale: Bool = false) async throws -> TileResponse? {
   let matchParams = getMapboxCanonicalURL(url.absoluteString)
