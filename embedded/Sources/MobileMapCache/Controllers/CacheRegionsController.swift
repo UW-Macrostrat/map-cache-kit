@@ -19,9 +19,9 @@ struct MBXCacheRegionDefinition: Content {
   let maxZoom: Double
   let pixelRatio: Double
   let glyphsRasterization: Int
-  let geometry: Geometry
+  let geometry: PolygonGeometry
   
-  struct Geometry: Content {
+  struct PolygonGeometry: Content {
     let type: String
     let coordinates: [[[Double]]]
   }
@@ -49,7 +49,6 @@ struct MBXCacheRegion: Content {
   let definition: MBXCacheRegionDefinition
   let description: MBXCacheRegionDescription
 }
-
 
 
 struct CacheRegionsController: RouteCollection {
