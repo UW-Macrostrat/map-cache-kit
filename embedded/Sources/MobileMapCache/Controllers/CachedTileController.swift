@@ -8,30 +8,52 @@ import Fluent
 import Vapor
 import FluentSQL
 
+typealias QueryParams = [
+  String: String?
+]
+
 struct CachedTileController: RouteCollection {
   func boot(routes: any RoutesBuilder) throws {
     let tiles = routes.grouped("tiles")
-    
-    tiles.get(use: self.index)
+   
+    tiles.get("**", use: self.catchAll)
   }
   
   @Sendable
-  func index(req: Request) async throws -> Response {
+  func catchAll(req: Request) async throws -> Response {
     
-    guard let cacheDomain = req.headers.first(name: "x-cache-domain") else {
-      throw Abort(.badRequest, reason: "No cache domain provided")
+    let path = req.parameters.getCatchall().joined(separator: "/")
+    
+    // get all query parametrs
+    guard var queryParams = try? req.query.decode(QueryParams.self) else {
+      throw Abort(.badRequest, reason: "Could not decode query parameters")
     }
     
-    let cacheMode = try getCacheMode(req: req)
-    
-    // Get path from query argument
-    guard let path: String = try req.query.get(at: "x-cache-path") else {
-      throw Abort(.badRequest, reason: "No cache path provided")
+    func getQueryParam(_ key: String, _ defaultValue: String) -> String {
+      guard let val = queryParams.removeValue(forKey: key) else {
+        return defaultValue
+      }
+      return val ?? defaultValue
     }
-    let p1 = path.replacingOccurrences(of: " ", with: "%20")
     
+    
+    guard let q1 = queryParams.removeValue(forKey: "x-cache-domain"),
+      var cacheDomain = q1 else {
+      throw Abort(.badRequest, reason: "Missing x-cache-domain parameter")
+    }
+    
+    let cacheScheme = getQueryParam("x-cache-scheme", "https")
+    
+    guard let cacheMode = MapCachePriority(rawValue: getQueryParam("x-cache-mode", "cache-then-network").lowercased()) else {
+      throw Abort(.badRequest, reason: "Invalid cache mode")
+    }
+    
+    if !cacheDomain.hasPrefix("https://") && !cacheDomain.hasPrefix("http://") {
+      cacheDomain = "\(cacheScheme)://\(cacheDomain)"
+    }
+   
     guard let domainURL = URL(string: cacheDomain),
-          let url1 = URL(string: p1, relativeTo: domainURL)
+      let url1 = URL(string: path, relativeTo: domainURL)
     else {
       throw Abort(.badRequest, reason: "Could not decode URL")
     }
@@ -40,13 +62,20 @@ struct CachedTileController: RouteCollection {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
     }
         
+    // Raster URL does not support OPTIONS requests
     if cacheMode != .network {
       if let cachedResponse = try await getCachedResource(from: db, url: url1) {
-        return Response(status: .ok, headers: [
+        let res = Response(status: .ok, headers: [
           "Content-Type": cachedResponse.contentType ?? "application/x-protobuf",
           "Cache-Control": "public, max-age=31536000",
           "X-Cache": "hit",
         ], body: .init(data: cachedResponse.data))
+        
+        if cachedResponse.compressed {
+          res.headers.add(name: "Content-Encoding", value: "deflate")
+        }
+        
+        return res
       } else if cacheMode == .cache {
         throw Abort(.notFound, reason: "Cache miss")
       }
@@ -55,12 +84,12 @@ struct CachedTileController: RouteCollection {
     // to the original URL
     
     // Add query parameters to URL
-    var urlBase = URLComponents(string: url1.absoluteString)
+    var url2 = url1
+    if !queryParams.isEmpty {
+      url2.append(queryItems: queryParams.map { (key, value) in URLQueryItem(name: key, value: value) })
+    }
     
-    return Response(status: .temporaryRedirect, headers: [
-      "Location": url1.absoluteString,
-      "X-Cache": cacheMode == .network ? "bypass" : "miss",
-    ], body: .empty)
+    return req.redirect(to: url2.absoluteString, redirectType: .temporary)
   }
 }
 
