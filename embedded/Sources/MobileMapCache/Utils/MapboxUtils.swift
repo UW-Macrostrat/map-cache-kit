@@ -73,7 +73,7 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
          let x = Int(groups.removeFirst()),
          let y = Int(groups.removeFirst())
       {
-        cacheType = .tile(x: x, y: y, z: z)
+        cacheType = .tile(TileIndex(x: x, y: y, z: z))
         matchURL = matchURL.replacingOccurrences(of: tileIndex, with: "/{z}/{x}/{y}")
       }
     }
@@ -98,8 +98,14 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
 
 let imageExtensions = Set(["webp", "png", "jpg", "jpeg", "mvt", "pbf"])
 
+struct TileIndex {
+  let x: Int
+  let y: Int
+  let z: Int
+}
+
 enum CacheType {
-  case tile(x: Int, y: Int, z: Int)
+  case tile(TileIndex)
   case resource
 }
 
