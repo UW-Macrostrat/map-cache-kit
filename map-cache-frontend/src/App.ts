@@ -4,7 +4,8 @@ import "./App.css";
 import "@macrostrat/style-system/dist/style-system.css";
 import "@blueprintjs/core/lib/css/blueprint.css";
 import { SegmentedControl, FormGroup } from "@blueprintjs/core";
-import { useCallback, useRef, useState } from "react";
+import { useRef } from "react";
+import { useQueryState, useRequestTransformer } from "./utils";
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 const cacheURL = import.meta.env.VITE_CACHE_URL;
@@ -23,15 +24,16 @@ const cacheModeOptions = [
 const cacheModes = cacheModeOptions.map((option) => option.value);
 
 export default function App() {
-  const [cacheMode, setCacheMode] = useQueryState(
-    "mode",
-    "cache-then-network",
-    cacheModes,
-  );
+  const [cacheMode, setCacheMode] = useQueryState("mode", {
+    defaultValue: "cache-then-network",
+    validValues: cacheModes,
+  });
   const [basemap, setBasemap] = useQueryState<"basic" | "satellite">(
     "basemap",
-    "basic",
-    ["basic", "satellite"],
+    {
+      defaultValue: "basic",
+      validValues: ["basic", "satellite"],
+    },
   );
   const refreshCounter = useRef(0);
 
@@ -70,78 +72,7 @@ export default function App() {
           }),
         ]),
       ]),
-      transformRequest: useRequestTransformer(cacheMode),
+      transformRequest: useRequestTransformer(cacheURL, cacheMode),
     }),
   );
-}
-
-function useRequestTransformer(cacheMode) {
-  return useCallback(
-    (req, type) => {
-      // Extract the domain from the request URL
-      const url = new URL(req);
-      const domain = url.hostname;
-      const scheme = url.protocol;
-
-      const baseURL = scheme + "//" + domain;
-
-      const newPath = req.replace(baseURL, cacheURL + "/tiles");
-
-      const newURL = new URL(newPath);
-
-      // Get query parameters
-      const params = new URLSearchParams(url.search);
-
-      // Add x-cache- parameters
-      params.set("x-cache-domain", domain);
-      params.set("x-cache-mode", cacheMode);
-
-      newURL.search = params.toString();
-
-      return {
-        url: newURL.toString(),
-      };
-    },
-    [cacheMode],
-  );
-}
-
-function useQueryState(
-  key: string,
-  defaultValue: string,
-  validValues: string[] | null = null,
-) {
-  // Use state that is managed by a query parameter
-  const [state, setState] = useState(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    let value = urlParams.get(key);
-    if (validValues) {
-      // Check if the value is valid
-      if (value && !validValues.includes(value)) {
-        console.warn(`Invalid value for ${key}: ${value}`);
-        value = null;
-      }
-    }
-    return value !== null ? value : defaultValue;
-  });
-
-  // Update the URL when the state changes
-  const setQueryState = (newValue) => {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (newValue === null || newValue == defaultValue) {
-      urlParams.delete(key);
-    } else {
-      urlParams.set(key, newValue);
-    }
-    // If URL params are empty, remove the '?' from the URL
-    let params = urlParams.toString();
-    if (params.length > 0) {
-      params = "?" + params;
-    }
-    console.log(params);
-    window.history.replaceState(null, "", window.location.pathname + params);
-    setState(newValue);
-  };
-
-  return [state, setQueryState];
 }
