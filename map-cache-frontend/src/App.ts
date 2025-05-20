@@ -14,9 +14,25 @@ const styles = {
   basic: "mapbox://styles/jczaplewski/cl3w3bdai001f14ob27ckmpxz",
 };
 
+const cacheModeOptions = [
+  { label: "Cache", value: "cache" },
+  { label: "Fallback", value: "cache-then-network" },
+  { label: "Network", value: "network" },
+];
+
+const cacheModes = cacheModeOptions.map((option) => option.value);
+
 export default function App() {
-  const [cacheMode, setCacheMode] = useState("cache-then-network");
-  const [basemap, setBasemap] = useState<"basic" | "satellite">("satellite");
+  const [cacheMode, setCacheMode] = useQueryState(
+    "mode",
+    "cache-then-network",
+    cacheModes,
+  );
+  const [basemap, setBasemap] = useQueryState<"basic" | "satellite">(
+    "basemap",
+    "basic",
+    ["basic", "satellite"],
+  );
   const refreshCounter = useRef(0);
 
   return h(
@@ -88,4 +104,44 @@ function useRequestTransformer(cacheMode) {
     },
     [cacheMode],
   );
+}
+
+function useQueryState(
+  key: string,
+  defaultValue: string,
+  validValues: string[] | null = null,
+) {
+  // Use state that is managed by a query parameter
+  const [state, setState] = useState(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    let value = urlParams.get(key);
+    if (validValues) {
+      // Check if the value is valid
+      if (value && !validValues.includes(value)) {
+        console.warn(`Invalid value for ${key}: ${value}`);
+        value = null;
+      }
+    }
+    return value !== null ? value : defaultValue;
+  });
+
+  // Update the URL when the state changes
+  const setQueryState = (newValue) => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (newValue === null || newValue == defaultValue) {
+      urlParams.delete(key);
+    } else {
+      urlParams.set(key, newValue);
+    }
+    // If URL params are empty, remove the '?' from the URL
+    let params = urlParams.toString();
+    if (params.length > 0) {
+      params = "?" + params;
+    }
+    console.log(params);
+    window.history.replaceState(null, "", window.location.pathname + params);
+    setState(newValue);
+  };
+
+  return [state, setQueryState];
 }
