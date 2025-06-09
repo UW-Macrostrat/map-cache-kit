@@ -15,6 +15,10 @@ let package = Package(
         .package(url: "https://github.com/vapor/fluent-sqlite-driver.git", from: "4.6.0"),
         // 🔵 Non-blocking, event-driven networking for Swift. Used for custom executors
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.65.0"),
+        // Calculations for tiling
+        .package(url: "https://github.com/Mapboard/SwiftTileMatrix.git", branch: "main"),
+        // Geometry management
+        .package(url: "https://github.com/GEOSwift/GEOSwift.git", from: "10.0.0"),
     ],
     targets: [
         .executableTarget(
@@ -25,6 +29,8 @@ let package = Package(
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "GEOSwift", package: "GEOSwift"),
+                .product(name: "SwiftTileMatrix", package: "SwiftTileMatrix"),
             ],
             swiftSettings: swiftSettings
         ),
