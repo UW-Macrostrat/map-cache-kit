@@ -5,3 +5,11 @@ body {
     margin: 0;
     padding: 0;
 }
+
+
+.cache-areas {
+  max-width: 20%;
+  min-width: 420px;
+  flex-grow: 1;
+  padding: 0 2em;
+}
