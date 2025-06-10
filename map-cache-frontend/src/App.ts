@@ -1,5 +1,5 @@
 import h from "@macrostrat/hyper";
-import { DevMapPage } from "@macrostrat/map-interface";
+import { DevMapPage, useBasicMapStyle } from "@macrostrat/map-interface";
 import "./App.css";
 import "@macrostrat/style-system/dist/style-system.css";
 import "@blueprintjs/core/lib/css/blueprint.css";
@@ -10,10 +10,7 @@ import { useQueryState, useRequestTransformer } from "./utils";
 const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 const cacheURL = import.meta.env.VITE_CACHE_URL;
 
-const styles = {
-  satellite: "mapbox://styles/jczaplewski/cl51esfdm000e14mq51erype3",
-  basic: "mapbox://styles/jczaplewski/cl3w3bdai001f14ob27ckmpxz",
-};
+const satelliteStyle = "mapbox://styles/jczaplewski/cl51esfdm000e14mq51erype3";
 
 const cacheModeOptions = [
   { label: "Cache", value: "cache" },
@@ -37,12 +34,15 @@ export default function App() {
   );
   const refreshCounter = useRef(0);
 
+  const basicStyle = useBasicMapStyle();
+  const style = basemap === "basic" ? basicStyle : satelliteStyle;
+
   return h(
     "div.app",
     h(DevMapPage, {
       key: refreshCounter.current,
       mapboxToken,
-      style: styles[basemap],
+      style,
       title: "Map cache utils",
       controls: h("div.cache-controls", [
         h(FormGroup, { label: "Cache mode" }, [
