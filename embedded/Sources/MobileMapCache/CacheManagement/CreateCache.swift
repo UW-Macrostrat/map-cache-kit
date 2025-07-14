@@ -5,6 +5,8 @@
 //  Created by Daven Quinn on 5/19/25.
 //
 
+import Fluent
+import FluentSQLiteDriver
 import GEOSwift
 import SwiftTileMatrix
 import Vapor
@@ -79,7 +81,8 @@ func getCacheRegion(from definition: CacheRegionDefinition) async throws {
 
   // Get the intersecting tiles
   let tiles = try getIntersectingTiles(
-    for: polygon, minZoom: definition.minZoom, maxZoom: definition.maxZoom)
+    for: polygon.geometry, minZoom: definition.minZoom, maxZoom: definition.maxZoom
+  )
 
   // Download tiles with rate limiting
 
@@ -102,31 +105,157 @@ func downloadTileCache(with app: Application, using definition: CacheRegionDefin
 
   // Get the intersecting tiles
   let tiles = try getIntersectingTiles(
-    for: polygon, minZoom: definition.minZoom, maxZoom: definition.maxZoom)
+    for: polygon.geometry, minZoom: definition.minZoom, maxZoom: definition.maxZoom)
   let client = app.client
+
+  // Get the tile URL templates from the style definition
+  let tileURLTemplates = try await getTileURLTemplatesFromStyle(
+    with: app, style: definition.style)
 
   await withTaskGroup(of: Void.self) { taskGroup in
     for tile in tiles {
-      taskGroup.addTask {
-        let url = definition.style.styleURL  // Assuming styleURL contains the base URL for tiles
-        let tileURL = "\(url)/\(tile.z)/\(tile.x)/\(tile.y).pbf"
+      for url in tileURLTemplates {
+        // Replace the placeholders in the URL with the tile coordinates
+        let tileURL =
+          url
+          .replacingOccurrences(of: "{z}", with: "\(tile.z)")
+          .replacingOccurrences(of: "{x}", with: "\(tile.x)")
+          .replacingOccurrences(of: "{y}", with: "\(tile.y)")
 
-        do {
-          let response = try await client.get(URI(string: tileURL))
-          guard response.status == .ok else {
-            print("Failed to download tile at \(tileURL): \(response.status)")
-            return
+        // Add a task to download the tile
+
+        taskGroup.addTask {
+          // Download the tile
+          do {
+            let response = try await client.get(URI(string: tileURL))
+            guard response.status == .ok else {
+              print("Failed to download tile at \(tileURL): \(response.status)")
+              return
+            }
+
+            let data = response.body?.readableBytesView
+            // Process the tile data (e.g., save to disk or database)
+            print("Downloaded tile at \(tileURL)")
+          } catch {
+            print("Error downloading tile at \(tileURL): \(error)")
           }
-
-          let data = response.body?.readableBytesView
-          // Process the tile data (e.g., save to disk or database)
-          print("Downloaded tile at \(tileURL)")
-        } catch {
-          print("Error downloading tile at \(tileURL): \(error)")
         }
       }
     }
   }
+}
+
+func getJSONForStyle(
+  with app: Application,
+  style: StyleDefinition
+) async throws -> Data {
+  switch style {
+  case .jsonData(let json):
+    guard let data = json.data(using: .utf8) else {
+      throw RuntimeError.invalidArgument("Failed to convert JSON string to Data")
+    }
+    return data
+  case .styleURL(let url):
+    // Fetch the JSON from the URL
+    let client = try await app.client.get(URI(string: url))
+    guard client.status == .ok, let body = client.body else {
+      throw RuntimeError.invalidArgument("Failed to fetch style JSON from URL: \(url)")
+    }
+
+    guard let data = body.getData(at: 0, length: body.readableBytes) else {
+      throw RuntimeError.invalidArgument("Failed to convert response body to Data")
+    }
+    return data
+  }
+}
+
+func getTileURLTemplatesFromStyle(
+  with app: Application,
+  style: StyleDefinition
+) async throws -> [String] {
+  var templates: [String] = []
+
+  let data = try await getJSONForStyle(with: app, style: style)
+
+  // Parse the JSON to extract tile URL templates
+
+  if let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+    let sources = jsonObject["sources"] as? [String: Any]
+  {
+    for (_, source) in sources {
+      if let sourceDict = source as? [String: Any] {
+        if let tiles = sourceDict["tiles"] as? [String] {
+          templates.append(contentsOf: tiles)
+        }
+      }
+    }
+  }
+
+  return templates
+}
+
+func persistTileToDatabase(
+  db: Database, tile: TileCoord, data: Data, compressed: Bool, regionId: Int
+) async throws {
+  let sql = """
+    WITH inserted_tile AS (
+      INSERT INTO tiles (x, y, z, data, compressed)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (x, y, z) DO NOTHING
+      RETURNING x, y, z
+    )
+    INSERT INTO region_tiles (region_id, x, y, z)
+    SELECT $6, x, y, z
+    FROM inserted_tile
+    ON CONFLICT (region_id, x, y, z) DO NOTHING
+    """
+
+  // Cast to SQLDatabase
+  guard let db = db as? SQLiteDatabase else {
+    throw RuntimeError.invalidArgument("Database must be an SQLDatabase")
+  }
+
+  let params: [SQLiteData] = [
+    .integer(tile.x),
+    .integer(tile.y),
+    .integer(tile.z),
+    .blob(ByteBuffer(data: data)),
+    .integer(compressed ? 1 : 0),
+    .integer(regionId),
+  ]
+
+  _ = try await db.query(sql, params)
+}
+
+func persistResourceToDatabase(
+  db: Database, url: String, data: Data, compressed: Bool, kind: ResourceKind, regionId: Int
+) async throws {
+  let sql = """
+    WITH inserted_resource AS (
+      INSERT INTO resources (url, data, compressed, kind)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (url) DO NOTHING
+      RETURNING url
+    )
+    INSERT INTO region_resources (region_id, url)
+    SELECT $5, url
+    FROM inserted_resource
+    ON CONFLICT (region_id, url) DO NOTHING
+    """
+
+  guard let db = db as? SQLiteDatabase else {
+    throw RuntimeError.invalidArgument("Database must be an SQLDatabase")
+  }
+
+  let params: [SQLiteData] = [
+    .text(url),
+    .blob(ByteBuffer(data: data)),
+    .integer(compressed ? 1 : 0),
+    .integer(kind.rawValue),
+    .integer(regionId),
+  ]
+
+  _ = try await db.query(sql, params)
 }
 
 func getIntersectingTiles(for geom: Geometry, minZoom: Int, maxZoom: Int) throws -> [TileCoord] {
