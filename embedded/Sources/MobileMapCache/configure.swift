@@ -12,6 +12,8 @@ public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration) as
   app.databases.use(DatabaseConfigurationFactory.sqlite(cacheDatabase), as: .sqlite)
 
   //app.migrations.add(CreateTodo())
+  app.migrations.add(CreateDatabaseSchema())
+
 
   // register routes
   try routes(app)
