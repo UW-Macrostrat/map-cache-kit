@@ -59,6 +59,7 @@ struct CacheRegionDefinition: Codable {
 
 enum RuntimeError: Error {
   case invalidArgument(String)
+  case databaseError(String)
 }
 
 func getCacheRegion(from definition: CacheRegionDefinition) async throws {

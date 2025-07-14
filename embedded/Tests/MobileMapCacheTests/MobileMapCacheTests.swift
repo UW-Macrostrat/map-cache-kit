@@ -1,4 +1,5 @@
 import Fluent
+import FluentSQLiteDriver
 import GEOSwift
 import Testing
 import VaporTesting
@@ -8,9 +9,12 @@ import VaporTesting
 @Suite("App Tests with DB", .serialized)
 struct MobileMapCacheTests {
   private func withApp(_ test: (Application) async throws -> Void) async throws {
+    // Set an environment variable for an in-memory database for testing
+
     let app = try await Application.make(.testing)
     do {
-      try await configure(app)
+      // Configure the app with an in-memory SQLite database
+      try await configure(app, cacheDatabase: .memory)
       try await app.autoMigrate()
       try await test(app)
       try await app.autoRevert()
