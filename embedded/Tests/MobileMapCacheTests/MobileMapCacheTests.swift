@@ -25,15 +25,14 @@ struct MobileMapCacheTests {
     }
     try await app.asyncShutdown()
   }
-
+  
   @Test("Check that the tables are created")
   func checkTablesCreated() async throws {
     // Check that the cache_regions table exists
     try await withApp { app in
       let db = app.db as! any SQLDatabase
 
-      let tables = try await db.raw("SELECT name FROM sqlite_master WHERE type='table'").all(
-        decoding: String.self)
+      let tables = try await db.raw("SELECT name FROM sqlite_master WHERE type='table'").all(decodingColumn: "name", as: String.self)
 
       for table in ["regions", "resources", "tiles", "region_resources"] {
         // Check if the table exists

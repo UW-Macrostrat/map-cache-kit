@@ -32,6 +32,9 @@ let package = Package(
                 .product(name: "GEOSwift", package: "GEOSwift"),
                 .product(name: "SwiftTileMatrix", package: "SwiftTileMatrix"),
             ],
+            resources: [
+              .copy("Schema/"),
+            ],
             swiftSettings: swiftSettings
         ),
         .testTarget(

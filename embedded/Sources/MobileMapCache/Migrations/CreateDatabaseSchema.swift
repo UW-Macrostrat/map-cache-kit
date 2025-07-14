@@ -24,8 +24,8 @@ struct CreateDatabaseSchema: AsyncMigration {
 
     // Check if tables already exist, if so, skip migration
     let tablesToCheck = ["regions", "resources", "tiles", "region_resources"]
-
-    let allTables = try await sqlDatabase.raw("SELECT name FROM sqlite_master WHERE type='table'").all(decoding: String.self)
+    
+    let allTables = try await sqlDatabase.raw("SELECT name FROM sqlite_master WHERE type='table'").all(decodingColumn: "name", as: String.self)
 
     let existingTables = allTables.filter { tablesToCheck.contains($0) }
 
@@ -37,16 +37,15 @@ struct CreateDatabaseSchema: AsyncMigration {
       throw RuntimeError.databaseError("Some tables already exist (\(tbl)) but the database is incompletely defined")
     }
 
-    // Get the file path relative to the current file
-    let currentFilePath = #file
-    // Resolve the absolute path
-    let schemaFile = "../../Schema/database-schema.sql"
-    let schemaFilePath = URL(fileURLWithPath: currentFilePath)
-      .deletingLastPathComponent()
-      .appendingPathComponent(schemaFile).path
-
-    let schemaSQL = try String(contentsOfFile: schemaFilePath)
-    try await sqlDatabase.raw(SQLQueryString(schemaSQL)).run()
+    guard let path = Bundle.module.url(forResource: "Schema/database-schema", withExtension: "sql") else {
+      throw RuntimeError.databaseError("Schema file not found")
+    }
+    
+    let schemaSQL = try String(contentsOf: path, encoding: .utf8)
+  
+    // Split queries by semicolon and remove empty lines
+    try await runSQL(sqlDatabase, statements: schemaSQL)
+    
   }
 
   func revert(on database: any Database) async throws {
@@ -60,6 +59,14 @@ struct CreateDatabaseSchema: AsyncMigration {
       DROP TABLE IF EXISTS resources;
       DROP TABLE IF EXISTS regions;
       """
-    try await sqlDatabase.raw(SQLQueryString(dropSQL)).run()
+    try await runSQL(sqlDatabase, statements: dropSQL)
+  }
+}
+
+func runSQL(_ database: any SQLDatabase, statements: String) async throws {
+  // Run raw SQL statements
+  let queries = statements.split(separator: ";").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+  for query in queries {
+    try await database.raw(SQLQueryString(query)).run()
   }
 }
