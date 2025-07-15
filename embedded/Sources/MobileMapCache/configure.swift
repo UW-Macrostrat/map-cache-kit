@@ -8,6 +8,8 @@ public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration) as
   // uncomment to serve files from /Public folder
   // app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
   //
+  
+  print("Configuring MobileMapCache with database: \(cacheDatabase.storage)")
 
   app.databases.use(DatabaseConfigurationFactory.sqlite(cacheDatabase), as: .sqlite)
 

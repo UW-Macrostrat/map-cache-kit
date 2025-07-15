@@ -43,6 +43,9 @@ let package = Package(
                 .target(name: "MobileMapCache"),
                 .product(name: "VaporTesting", package: "vapor"),
             ],
+            resources: [
+                .copy("Fixtures/Rockd-map-cache-v1.db"),
+            ],
             swiftSettings: swiftSettings
         )
     ]

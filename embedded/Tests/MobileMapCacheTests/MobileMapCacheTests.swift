@@ -9,12 +9,18 @@ import VaporTesting
 @Suite("App Tests with DB", .serialized)
 struct MobileMapCacheTests {
   private func withApp(_ test: (Application) async throws -> Void) async throws {
+    // Use an in-memory SQLite database for testing
+    let cacheDatabase = SQLiteConfiguration(storage: .memory)
+    try await withApp(cacheDatabase: cacheDatabase, test)
+  }
+
+  private func withApp(cacheDatabase: SQLiteConfiguration, _ test: (Application) async throws -> Void) async throws {
     // Set an environment variable for an in-memory database for testing
 
     let app = try await Application.make(.testing)
     do {
       // Configure the app with an in-memory SQLite database
-      try await configure(app, cacheDatabase: .memory)
+      try await configure(app, cacheDatabase: cacheDatabase)
       try await app.autoMigrate()
       try await test(app)
       try await app.autoRevert()
@@ -25,7 +31,7 @@ struct MobileMapCacheTests {
     }
     try await app.asyncShutdown()
   }
-  
+
   @Test("Check that the tables are created")
   func checkTablesCreated() async throws {
     // Check that the cache_regions table exists
@@ -102,18 +108,53 @@ struct MobileMapCacheTests {
   //       })
   //   }
   // }
-}
 
-extension TodoDTO: Equatable {
-  public static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.id == rhs.id && lhs.title == rhs.title
+  @Test("Load an existing cache database")
+  func loadExistingCacheDatabase() async throws {
+    // Get fixture
+    guard let fixtureURL = Bundle.module.url(forResource: "Rockd-map-cache-v1", withExtension: "db") else {
+      throw RuntimeError.invalidArgument("Fixture database not found")
+    }
+    
+    // Copy the test fixture to a temporary path
+    let tempDirectory = FileManager.default.temporaryDirectory
+    let fixturePath = tempDirectory.appendingPathComponent("Rockd-map-cache-v1.db")
+    // Delete the file if it exists
+    if FileManager.default.fileExists(atPath: fixturePath.path) {
+      try FileManager.default.removeItem(at: fixturePath)
+    }
+    try FileManager.default.copyItem(at: fixtureURL, to: fixturePath)
+    
+//        
+    // Ensure the file exists
+    guard FileManager.default.fileExists(atPath: fixturePath.path) else {
+      throw RuntimeError.invalidArgument("Fixture database file does not exist at \(fixturePath.path)")
+    }
+    
+    let cacheDatabase = SQLiteConfiguration.file(fixturePath.path)
+
+    try await withApp(cacheDatabase: cacheDatabase)  { app in
+      // Load the existing cache database
+      let db = app.db as! any SQLDatabase
+
+      // Check if the regions table exists
+      let tables = try await db.raw("SELECT name FROM sqlite_master WHERE type='table'").all(decodingColumn: "name", as: String.self)
+      #expect(tables.contains("regions"), "The 'regions' table should exist in the database")
+
+      // There should be 18 tiles in the database
+      // Each tileset has 4 or 5 tiles (zooms 0-1)
+      // Raster tilesets (terrain RGB and satellite) for some reason don't have zoom 0 tiles
+
+      let tileCount = try await db.raw("SELECT count(*) AS count FROM tiles").first(decodingColumn: "count", as: Int.self)
+
+      #expect(tileCount == 18, "There should be 18 tiles in the database")
+    }
   }
-}
 
-@Test("Parsing Tile URL Templates from Style")
-func parseTileURLTemplates() async throws {
-  try await withApp { app in
-    let styleJSON = """
+  @Test("Parsing Tile URL Templates from Style")
+  func parseTileURLTemplates() async throws {
+    try await withApp { app in
+      let styleJSON = """
       {
           "version": 8,
           "sources": {
@@ -126,18 +167,18 @@ func parseTileURLTemplates() async throws {
           }
       }
       """
-    let styleDefinition = StyleDefinition.jsonData(styleJSON)
-    let templates = try await getTileURLTemplatesFromStyle(with: app, style: styleDefinition)
+      let styleDefinition = StyleDefinition.jsonData(styleJSON)
+      let templates = try await getTileURLTemplatesFromStyle(with: app, style: styleDefinition)
 
-    #expect(templates.count == 1)
-    #expect(templates.first == "https://example.com/tiles/{z}/{x}/{y}.pbf")
+      #expect(templates.count == 1)
+      #expect(templates.first == "https://example.com/tiles/{z}/{x}/{y}.pbf")
+    }
   }
-}
 
-@Test("Downloading Tiles from Style URL")
-func downloadTilesFromStyle() async throws {
-  try await withApp { app in
-    let styleJSON = """
+  @Test("Downloading Tiles from Style URL")
+  func downloadTilesFromStyle() async throws {
+    try await withApp { app in
+      let styleJSON = """
       {
           "version": 8,
           "sources": {
@@ -150,23 +191,24 @@ func downloadTilesFromStyle() async throws {
           }
       }
       """
-    let styleDefinition = StyleDefinition.jsonData(styleJSON)
-    let definition = CacheRegionDefinition(
-      style: styleDefinition,
-      minZoom: 0,
-      maxZoom: 1,
-      pixelRatio: 1,
-      glyphsRasterization: 1,
-      geometry: try! Polygon(wkt: "POLYGON((-1 -1, -1 1, 1 1, 1 -1, -1 -1))")
-    )
+      let styleDefinition = StyleDefinition.jsonData(styleJSON)
+      let definition = CacheRegionDefinition(
+        style: styleDefinition,
+        minZoom: 0,
+        maxZoom: 1,
+        pixelRatio: 1,
+        glyphsRasterization: 1,
+        geometry: try! Polygon(wkt: "POLYGON((-1 -1, -1 1, 1 1, 1 -1, -1 -1))")
+      )
 
-    try await downloadTileCache(with: app, using: definition)
+      try await downloadTileCache(with: app, using: definition)
 
-    // //let tiles = try await app.db.query("SELECT COUNT(*) AS count FROM tiles").first()
-    // guard let tileCount = tiles?["count"]?.int else {
-    //   throw RuntimeError.invalidArgument("Failed to fetch tile count from database")
-    // }
+      // //let tiles = try await app.db.query("SELECT COUNT(*) AS count FROM tiles").first()
+      // guard let tileCount = tiles?["count"]?.int else {
+      //   throw RuntimeError.invalidArgument("Failed to fetch tile count from database")
+      // }
 
-    // #expect(tileCount > 0)
+      // #expect(tileCount > 0)
+    }
   }
 }
