@@ -110,6 +110,48 @@ struct MobileMapCacheTests {
         })
     }
   }
+  
+  @Test("Find existing tiles in database")
+  func findExistingTiles() async throws {
+    try await withExistingDatabase { app in
+      // Try to download a style and check if the tiles are already in the database
+      let sourceURLTemplate = "https://tiles.macrostrat.org/carto/{z}/{x}/{y}.mvt"
+      let cacheRegion = try! Polygon(wkt: "POLYGON((-10 -10, -10 10, 10 10, 10 -10, -10 -10))")
+      
+      let styleJSON = """
+      {
+          "version": 8,
+          "sources": {
+              "macrostrat": {
+                  "type": "vector",
+                  "tiles": [
+                      "\(sourceURLTemplate)"
+                  ]
+              }
+          }
+      }
+      """
+      
+      let styleDefinition = StyleDefinition.jsonData(styleJSON)
+      
+      let definition = CacheRegionDefinition(
+        style: styleDefinition,
+        minZoom: 0,
+        maxZoom: 1,
+        pixelRatio: 1,
+        glyphsRasterization: 1,
+        geometry: cacheRegion
+      )
+      
+      let res = try await getTilesToDownload(with: app, using: definition)
+      
+      #expect(res.tilesToDownload.count == 0)
+      #expect(res.tilesAlreadyDownloaded.count == 5)
+      // More than a 100 kb of tiles should be downloaded
+      #expect(Double(res.totalSizeOfTilesDownloaded) > 1e5)
+      
+    }
+  }
 
 }
 
@@ -282,6 +324,5 @@ struct IntersectingTileTests {
     
     let intersectingTiles2 = try getIntersectingTiles(for: polygon.geometry, minZoom: 1, maxZoom: 1)
     #expect(intersectingTiles2.count == 4, "There should be 4 tiles at zoom level 1 covering the entire world")
-    
   }
 }

@@ -89,6 +89,76 @@ func getCacheRegion(from definition: CacheRegionDefinition) async throws {
 
 }
 
+struct CandidateTile {
+  let x: Int
+  let y: Int
+  let z: Int
+  let urlTemplate: String
+}
+
+struct CacheInfo {
+  let tilesToDownload: [CandidateTile]
+  let tilesAlreadyDownloaded: [CandidateTile]
+  let totalSizeOfTilesDownloaded: Int64
+}
+
+func getTilesToDownload(with app: Application, using definition: CacheRegionDefinition) async throws -> CacheInfo {
+  // Convert the geometry to a GEOSwift Polygon
+  let polygon = definition.geometry
+  
+  // Get the intersecting tiles
+  let tiles = try getIntersectingTiles(
+    for: polygon.geometry, minZoom: definition.minZoom, maxZoom: definition.maxZoom)
+  let client = app.client
+  
+  // Get the tile URL templates from the style definition
+  let tileURLTemplates = try await getTileURLTemplatesFromStyle(
+    with: app, style: definition.style)
+  
+  // Get all tiles that may need to be downloaded
+  var candidateTiles: [CandidateTile] = []
+  
+  for tile in tiles {
+    for url in tileURLTemplates {
+      // Add the candidate tile
+      candidateTiles.append(CandidateTile(x: tile.x, y: tile.y, z: tile.z, urlTemplate: url))
+    }
+  }
+  
+  guard let db = app.db as? any SQLDatabase else {
+    throw RuntimeError.databaseError("Database is not an SQLDatabase")
+  }
+  
+  var tilesToDownload: [CandidateTile] = []
+  var tilesAlreadyDownloaded: [CandidateTile] = []
+  var totalSizeOfTilesDownloaded: Int64 = 0
+  
+  // already downloaded tiles
+  for candidate in candidateTiles {
+    let sql: SQLQueryString = """
+      SELECT length(data) size FROM tiles
+      WHERE x = \(bind: candidate.x)
+        AND y = \(bind: candidate.y)
+        AND z = \(bind: candidate.z)
+        AND url_template = \(bind: candidate.urlTemplate)
+      LIMIT 1
+      """
+    if let tileSize = try await db.raw(sql).first(decodingColumn: "size", as: Int64.self) {
+      totalSizeOfTilesDownloaded += tileSize
+      tilesAlreadyDownloaded.append(candidate)
+    } else {
+    // If the tile is not in the database, we need to download it
+      tilesToDownload.append(candidate)
+    }
+  }
+  
+  return CacheInfo(
+    tilesToDownload: tilesToDownload,
+    tilesAlreadyDownloaded: tilesAlreadyDownloaded,
+    totalSizeOfTilesDownloaded: totalSizeOfTilesDownloaded
+  )
+}
+
 func downloadTileCache(with app: Application, using definition: CacheRegionDefinition) async throws
 {
   // Validate the definition
@@ -409,4 +479,11 @@ func epsg4326ToWebMercator(point: Point) -> Point {
   let x = point.x * D2R * earthRadius
   let y = earthRadius * log(tan(Double.pi / 4 + point.y * D2R / 2))
   return Point(x: x, y: y)
+}
+
+func webMercatorToEpsg4326(point: Point) -> Point {
+  /** Get the lon/lat coordinates for a spherical mercator xy point */
+  let lon = point.x / (D2R * earthRadius)
+  let lat = (Double.pi / 2 - 2 * atan(exp(-point.y / earthRadius))) / D2R
+  return Point(x: lon, y: lat)
 }
