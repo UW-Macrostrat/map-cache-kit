@@ -3,6 +3,8 @@ import FluentSQLiteDriver
 import GEOSwift
 import Testing
 import VaporTesting
+import SwiftTileMatrix
+import Numerics
 
 @testable import MobileMapCache
 
@@ -22,6 +24,10 @@ fileprivate func withApp(cacheDatabase: SQLiteConfiguration, _ test: (Applicatio
     throw error
   }
   try await app.asyncShutdown()
+}
+
+extension TileCoord: @unchecked Sendable {
+  
 }
 
 fileprivate func withApp(_ test: (Application) async throws -> Void) async throws {
@@ -184,5 +190,98 @@ struct MobileMapCacheNewDatabaseTests {
       
       // #expect(tileCount > 0)
     }
+  }
+}
+
+struct ParentTileTestCase: Sendable {
+  let polygon: Polygon
+  let expectedTile: TileCoord
+}
+
+let parentTileTestCases = [
+  ParentTileTestCase(
+    polygon: try! Polygon(wkt: "POLYGON((-1 -1, -1 1, 1 1, 1 -1, -1 -1))"),
+    expectedTile: TileCoord(0, 0, 0)
+  ),
+  ParentTileTestCase(
+    polygon: try! Polygon(wkt: "POLYGON((-180 -85.0511, -180 85.0511, 180 85.0511, 180 -85.0511, -180 -85.0511))"),
+    expectedTile: TileCoord(0, 0, 0)
+  ),
+  ParentTileTestCase(polygon: try! Polygon(wkt: "POLYGON((-180 0.1, -0.1 0.1, -0.1 85.0511, -180 85.0511, -180 0.1))"),
+                     expectedTile: TileCoord(0, 0, 1))
+]
+
+@Suite("Tests for tile intersections", .serialized)
+struct IntersectingTileTests {
+  @Test("EPSG:4326 to web mercator")
+  func testEpsg4326ToWebMercator() {
+    // Define a point in EPSG:4326
+    let pointWKT = "POINT(-180 0)"
+    
+    // Convert to Web Mercator
+    let point = try! Point(wkt: pointWKT)
+    let webMercatorPoint = epsg4326ToWebMercator(point: point)
+    
+    // Check the coordinates
+    #expect(webMercatorPoint.x == -webMercatorGridSize/2.0)
+    #expect(webMercatorPoint.y.isApproximatelyEqual(to: 0.0, absoluteTolerance: 1e-7), "Y coordinate should match Web Mercator conversion")
+  }
+  
+  @Test("EPSG:4326 to web mercator 2")
+  func testEpsg4326ToWebMercator2() {
+    // Define a point in EPSG:4326 at the edge of the grid
+    // Convert to Web Mercator
+    let point = Point(x: 180, y: 85.051129)
+    let webMercatorPoint = epsg4326ToWebMercator(point: point)
+    
+    // Check the coordinates
+    #expect(webMercatorPoint.x == webMercatorGridSize/2.0)
+    #expect(webMercatorPoint.y.isApproximatelyEqual(to: webMercatorGridSize/2.0, absoluteTolerance: 1), "Y coordinate should match Web Mercator conversion")
+  }
+  
+  @Test("Get parent tile", arguments: parentTileTestCases)
+  func getParentTileOfGeometry(_ arguments: ParentTileTestCase) throws {
+    // Define a polygon that intersects with some tiles
+    //let polygonWKT = "POLYGON((-180 -85.0511, -180 85.0511, 180 85.0511, 180 -85.0511, -180 -85.0511))"
+    //let polygon = try Polygon(wkt: polygonWKT)
+    
+    // Get the parent tile at zoom level 0
+    let parentTile = try getParentTile(for: arguments.polygon.geometry)
+    
+    // The expected tile at zoom level 0 for this point is (0, 0)
+    #expect(parentTile == arguments.expectedTile)
+  }
+  
+  @Test("Get intersecting tiles for polygon")
+  func getIntersectingTilesForPolygon() throws {
+    
+    // Define a polygon that intersects with some tiles
+    let polygonWKT = "POLYGON((-1 -1, -1 1, 1 1, 1 -1, -1 -1))"
+    let polygon = try Polygon(wkt: polygonWKT)
+    
+    // Get intersecting tiles
+    let intersectingTiles = try getIntersectingTiles(for: polygon.geometry, minZoom: 0, maxZoom: 1)
+    
+    #expect(intersectingTiles.count == 5)
+    
+    let intersectingTiles2 = try getIntersectingTiles(for: polygon.geometry, minZoom: 0, maxZoom: 2)
+    #expect(intersectingTiles2.count == 9)
+  }
+  
+  @Test("Get intersecting tiles for entire Web Mercator world")
+  func getIntersectingTilesForWorld() throws {
+    
+    // Define a polygon that covers the entire Web Mercator world
+    let polygonWKT = "POLYGON((-180 -85.0511, -180 85.0511, 180 85.0511, 180 -85.0511, -180 -85.0511))"
+    let polygon = try Polygon(wkt: polygonWKT)
+    
+    // Get intersecting tiles for the entire world at zoom level 0
+    let intersectingTiles = try getIntersectingTiles(for: polygon.geometry, minZoom: 0, maxZoom: 0)
+    
+    #expect(intersectingTiles.count == 1, "There should be only one tile at zoom level 0 covering the entire world")
+    
+    let intersectingTiles2 = try getIntersectingTiles(for: polygon.geometry, minZoom: 1, maxZoom: 1)
+    #expect(intersectingTiles2.count == 4, "There should be 4 tiles at zoom level 1 covering the entire world")
+    
   }
 }

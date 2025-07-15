@@ -19,6 +19,8 @@ let package = Package(
         .package(url: "https://github.com/Mapboard/SwiftTileMatrix.git", branch: "main"),
         // Geometry management
         .package(url: "https://github.com/GEOSwift/GEOSwift.git", from: "10.0.0"),
+        // Numerical operations
+        .package(url: "https://github.com/apple/swift-numerics", from: "1.0.0")
     ],
     targets: [
         .executableTarget(
@@ -42,6 +44,7 @@ let package = Package(
             dependencies: [
                 .target(name: "MobileMapCache"),
                 .product(name: "VaporTesting", package: "vapor"),
+                .product(name: "Numerics", package: "swift-numerics"),
             ],
             resources: [
                 .copy("Fixtures/Rockd-map-cache-v1.db"),

@@ -308,7 +308,9 @@ func getIntersectingTiles(for geom: Geometry, minZoom: Int, maxZoom: Int) throws
       tiles.append(contentsOf: currentLevelTiles)
     }
   }
-  return tiles
+  
+  // Filter tiles that are less than the minimum zoom
+  return tiles.filter { $0.z >= minZoom }  
 }
 
 extension TileCoord {
@@ -335,34 +337,76 @@ func getParentTile(for geom: Geometry) throws -> TileCoord {
 
   let bottomLeft = epsg4326ToWebMercator(point: env.minXMinY)
   let topRight = epsg4326ToWebMercator(point: env.maxXMaxY)
+  
+  let webMercatorEnvelope = Envelope(
+    minX: bottomLeft.x,
+    maxX: topRight.x,
+    minY: bottomLeft.y,
+    maxY: topRight.y
+  )
+  
+  var tileCoord = TileCoord(0, 0, 0)
+  
+  while tileCoord.z < 30 {
+    guard try tileCoord.envelope.covers(webMercatorEnvelope) else {
+      throw RuntimeError.invalidArgument("Geometry does not fit in tile envelope")
+    }
+    // Check if any of the child tiles cover the geometry
+    let x0 = tileCoord.x * 2
+    let y0 = tileCoord.y * 2
+    let z = tileCoord.z + 1
+    let childTiles = [
+      TileCoord(x0, y0, z),     // Bottom-left
+      TileCoord(x0 + 1, y0, z), // Bottom-right
+      TileCoord(x0, y0 + 1, z), // Top-left
+      TileCoord(x0 + 1, y0 + 1, z) // Top-right
+    ]
+    
+    for childTile in childTiles {
+      if try childTile.envelope.covers(webMercatorEnvelope) {
+        tileCoord = childTile
+        break
+      }
+    }
+    // If we didn't find a child tile that covers the geometry, we can stop
+    return tileCoord
+  }
 
-  let xSize = topRight.x - bottomLeft.x
-  let ySize = topRight.y - bottomLeft.y
-
-  // Get max size
-  let maxSize = max(xSize, ySize)
-
-  let fracWidth = maxSize / webMercatorGridSize
-
-  let zoomLevel = Int(abs(.log2(fracWidth)))
-
-  let tileSize = webMercatorGridSize / Double(1 << zoomLevel)
-  let xTile = Int((bottomLeft.x + webMercatorGridSize / 2.0) / tileSize)
-  let yTile = Int((bottomLeft.y + webMercatorGridSize / 2.0) / tileSize)
-
-  return TileCoord(xTile, yTile, zoomLevel)
+  throw RuntimeError.invalidArgument("Unable to find parent tile for geometry")
 }
 
+/**
+
+ A = earth radius
+ 
+ public inverse(xy: XY): LonLat {
+ return [
+ (xy[0] * R2D) / A,
+ (Math.PI * 0.5 - 2.0 * Math.atan(Math.exp(-xy[1] / A))) * R2D,
+ ];
+ }
+ 
+ public forward(ll: LonLat): XY {
+ const xy: LonLat = [
+ A * ll[0] * D2R,
+ A * Math.log(Math.tan(Math.PI * 0.25 + 0.5 * ll[1] * D2R)),
+ ];
+ // if xy value is beyond maxextent (e.g. poles), return maxextent.
+ xy[0] > MAXEXTENT && (xy[0] = MAXEXTENT);
+ xy[0] < -MAXEXTENT && (xy[0] = -MAXEXTENT);
+ xy[1] > MAXEXTENT && (xy[1] = MAXEXTENT);
+ xy[1] < -MAXEXTENT && (xy[1] = -MAXEXTENT);
+ return xy;
+ }
+ 
+ 
+ */
+
+let D2R = Double.pi / 180.0
+
 func epsg4326ToWebMercator(point: Point) -> Point {
-  // Grid size (overall circumerence)
-  let gridSize = webMercatorGridSize
-  let d2r: Double = .pi / 180
-
-  let lonRadians: Double = point.x * d2r
-  let latRadians: Double = point.y * d2r
-
-  return Point(
-    x: (lonRadians * 2.0 * .asinh(.exp(lonRadians))) * gridSize / 2.0,
-    y: .log(.tan((.pi + latRadians) / 4.0)) * gridSize / 2.0
-  )
+  /** Get the spherical mercator xy coordinates for a lon/lat point */
+  let x = point.x * D2R * earthRadius
+  let y = earthRadius * log(tan(Double.pi / 4 + point.y * D2R / 2))
+  return Point(x: x, y: y)
 }
