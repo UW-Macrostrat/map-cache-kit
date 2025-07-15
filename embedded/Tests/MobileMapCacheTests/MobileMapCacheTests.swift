@@ -31,6 +31,31 @@ struct MobileMapCacheTests {
     }
     try await app.asyncShutdown()
   }
+  
+  private func withExistingDatabase(_ test: (Application) async throws -> Void) async throws {
+    // Get fixture
+    guard let fixtureURL = Bundle.module.url(forResource: "Rockd-map-cache-v1", withExtension: "db") else {
+      throw RuntimeError.invalidArgument("Fixture database not found")
+    }
+    
+    // Copy the test fixture to a temporary path
+    let tempDirectory = FileManager.default.temporaryDirectory
+    let fixturePath = tempDirectory.appendingPathComponent("Rockd-map-cache-v1.db")
+    // Delete the file if it exists
+    if FileManager.default.fileExists(atPath: fixturePath.path) {
+      try FileManager.default.removeItem(at: fixturePath)
+    }
+    try FileManager.default.copyItem(at: fixtureURL, to: fixturePath)
+    
+    // Ensure the file exists
+    guard FileManager.default.fileExists(atPath: fixturePath.path) else {
+      throw RuntimeError.invalidArgument("Fixture database file does not exist at \(fixturePath.path)")
+    }
+    
+    let cacheDatabase = SQLiteConfiguration.file(fixturePath.path)
+    
+    try await withApp(cacheDatabase: cacheDatabase, test)
+  }
 
   @Test("Check that the tables are created")
   func checkTablesCreated() async throws {
@@ -111,29 +136,7 @@ struct MobileMapCacheTests {
 
   @Test("Load an existing cache database")
   func loadExistingCacheDatabase() async throws {
-    // Get fixture
-    guard let fixtureURL = Bundle.module.url(forResource: "Rockd-map-cache-v1", withExtension: "db") else {
-      throw RuntimeError.invalidArgument("Fixture database not found")
-    }
-    
-    // Copy the test fixture to a temporary path
-    let tempDirectory = FileManager.default.temporaryDirectory
-    let fixturePath = tempDirectory.appendingPathComponent("Rockd-map-cache-v1.db")
-    // Delete the file if it exists
-    if FileManager.default.fileExists(atPath: fixturePath.path) {
-      try FileManager.default.removeItem(at: fixturePath)
-    }
-    try FileManager.default.copyItem(at: fixtureURL, to: fixturePath)
-    
-//        
-    // Ensure the file exists
-    guard FileManager.default.fileExists(atPath: fixturePath.path) else {
-      throw RuntimeError.invalidArgument("Fixture database file does not exist at \(fixturePath.path)")
-    }
-    
-    let cacheDatabase = SQLiteConfiguration.file(fixturePath.path)
-
-    try await withApp(cacheDatabase: cacheDatabase)  { app in
+    try await withExistingDatabase  { app in
       // Load the existing cache database
       let db = app.db as! any SQLDatabase
 
@@ -148,6 +151,20 @@ struct MobileMapCacheTests {
       let tileCount = try await db.raw("SELECT count(*) AS count FROM tiles").first(decodingColumn: "count", as: Int.self)
 
       #expect(tileCount == 18, "There should be 18 tiles in the database")
+    }
+  }
+  
+  @Test("Serve a cached tile")
+  func serveCachedTile() async throws {
+    try await withExistingDatabase { app in
+      // Serve a cached tile
+      try await app.testing().test(
+        .GET, "/tiles/v4/mapbox.terrain-rgb/1/0/0.webp?x-cache-domain=api.mapbox.com&x-cache-mode=cache",
+        afterResponse: { res async throws in
+          #expect(res.status == .ok)
+          #expect(res.headers.contentType == .png)
+          #expect(res.body.readableBytes > 0, "The tile should have content")
+        })
     }
   }
 
