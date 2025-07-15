@@ -168,6 +168,20 @@ struct MobileMapCacheTests {
     }
   }
 
+  @Test("Serve a cached resource")
+  func serveCachedResource() async throws {
+    try await withExistingDatabase { app in
+      // Serve a cached resource
+      try await app.testing().test(
+        .GET, "/tiles/fonts/v1/jczaplewski/DIN%20Offc%20Pro%20Medium%2cArial%20Unicode%20MS%20Regular/0-255.pbf?x-cache-domain=api.mapbox.com&x-cache-mode=cache",
+        afterResponse: { res async throws in
+          #expect(res.status == .ok)
+          #expect(res.headers["Content-Type"].first == "application/x-protobuf")
+          #expect(res.body.readableBytes > 0, "The resource should have content")
+        })
+    }
+  }
+
   @Test("Parsing Tile URL Templates from Style")
   func parseTileURLTemplates() async throws {
     try await withApp { app in
