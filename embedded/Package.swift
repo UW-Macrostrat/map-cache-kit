@@ -48,7 +48,7 @@ let package = Package(
             ],
             resources: [
                 .copy("Fixtures/Rockd-map-cache-v1.db"),
-                .copy("Fixtures/satellite-style.excerpt.json"),
+                .copy("Fixtures/satellite-style.json"),
                 .copy("Fixtures/test-style.excerpt.json")
             ],
             swiftSettings: swiftSettings

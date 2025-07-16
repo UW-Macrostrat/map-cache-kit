@@ -160,7 +160,7 @@ struct MobileMapCacheTests {
       let cacheRegion = try! Polygon(wkt: "POLYGON((-10 -10, -10 10, 10 10, 10 -10, -10 -10))")
       
       // Get style excerpt
-      guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "excerpt.json") else {
+      guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "json") else {
         throw RuntimeError.invalidArgument("Style excerpt not found")
       }
       // Get JSON as a string
@@ -186,6 +186,25 @@ struct MobileMapCacheTests {
       
     }
   }
+}
+
+
+
+@Test("Find fonts requested by a Mapbox style")
+func findFontsRequestedByMapboxStyle() async throws {
+  guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "json") else {
+    throw RuntimeError.invalidArgument("Style excerpt not found")
+  }
+  
+  let style = try String(contentsOf: styleURL, encoding: .utf8)
+  
+  // decode the style
+  let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: Data(style.utf8))
+
+  let fontStacks = findFontsRequestedByMapboxStyle(spec: styleSpec)
+  
+  #expect(fontStacks.count > 0, "There should be at least one font stack in the style")
+  
 }
 
 @Suite("Tests with new cache database")

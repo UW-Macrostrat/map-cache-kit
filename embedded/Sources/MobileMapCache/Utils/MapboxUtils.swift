@@ -127,3 +127,27 @@ extension NSTextCheckingResult {
     return groups
   }
 }
+
+
+func findFontsRequestedByMapboxStyle(spec: StyleSpec) -> Set<String> {
+  var fontStacks: Set<String> = []
+  for lyr in spec.layers {
+    if let font = lyr.layout.textFont {
+      switch font {
+      case .constant(let fonts):
+        // Concatenate fonts into a single font stack
+        let fontStack = fonts.joined(separator: ",")
+        fontStacks.insert(fontStack)
+      case .expression(let value):
+        // Print the expression for debugging
+        if let jsonData = try? JSONEncoder().encode(value),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+          print("Expression ignored for text-font: \(jsonString)")
+        } else {
+          print("Invalid value of text-font")
+        }
+      }
+    }
+  }
+  return fontStacks
+}
