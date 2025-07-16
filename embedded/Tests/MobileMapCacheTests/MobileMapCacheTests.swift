@@ -180,7 +180,7 @@ struct MobileMapCacheTests {
       let res = try await getTilesToDownload(with: app, using: definition)
       
       #expect(res.tilesToDownload.count == 0)
-      #expect(res.tilesAlreadyDownloaded.count == 5)
+      #expect(res.tilesAlreadyDownloaded.count == 13)
       // More than a 100 kb of tiles should be downloaded
       #expect(Double(res.totalSizeOfTilesDownloaded) > 1e5)
       
@@ -223,10 +223,10 @@ struct MobileMapCacheNewDatabaseTests {
       }
       """
       let styleDefinition = StyleDefinition.jsonData(styleJSON)
-      let templates = try await getTileURLTemplatesFromStyle(with: app, style: styleDefinition)
+      let defs = try await getCacheableTileLayersFromStyle(with: app, style: styleDefinition)
       
-      #expect(templates.count == 1)
-      #expect(templates.first == "https://example.com/tiles/{z}/{x}/{y}.pbf")
+      #expect(defs.count == 1)
+      #expect(defs.first?.urlTemplate == "https://example.com/tiles/{z}/{x}/{y}.pbf")
     }
   }
   

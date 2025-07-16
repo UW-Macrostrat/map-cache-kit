@@ -111,16 +111,20 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
     for: polygon.geometry, minZoom: definition.minZoom, maxZoom: definition.maxZoom)
   
   // Get the tile URL templates from the style definition
-  let tileURLTemplates = try await getTileURLTemplatesFromStyle(
+  let tileLayerDefs = try await getCacheableTileLayersFromStyle(
     with: app, style: definition.style)
   
   // Get all tiles that may need to be downloaded
   var candidateTiles: [CandidateTile] = []
   
   for tile in tiles {
-    for url in tileURLTemplates {
+    for lyr in tileLayerDefs {
+      // Special case for raster and raster-dem tiles (mapbox): no zoom 0 tiles for these types
+      if (lyr.type == .raster || lyr.type == .rasterDem) && tile.z == 0 {
+        continue
+      }
       // Add the candidate tile
-      candidateTiles.append(CandidateTile(x: tile.x, y: tile.y, z: tile.z, urlTemplate: url))
+      candidateTiles.append(CandidateTile(x: tile.x, y: tile.y, z: tile.z, urlTemplate: lyr.urlTemplate))
     }
   }
   
@@ -169,46 +173,35 @@ func downloadTileCache(with app: Application, using definition: CacheRegionDefin
     throw RuntimeError.invalidArgument(
       "Maximum zoom level must be greater than or equal to minimum zoom level")
   }
-
-  // Convert the geometry to a GEOSwift Polygon
-  let polygon = definition.geometry
-
-  // Get the intersecting tiles
-  let tiles = try getIntersectingTiles(
-    for: polygon.geometry, minZoom: definition.minZoom, maxZoom: definition.maxZoom)
+  
   let client = app.client
 
-  // Get the tile URL templates from the style definition
-  let tileURLTemplates = try await getTileURLTemplatesFromStyle(
-    with: app, style: definition.style)
+  let spec = try await getTilesToDownload(with: app, using: definition)
 
   await withTaskGroup(of: Void.self) { taskGroup in
-    for tile in tiles {
-      for url in tileURLTemplates {
-        // Replace the placeholders in the URL with the tile coordinates
-        let tileURL =
-          url
-          .replacingOccurrences(of: "{z}", with: "\(tile.z)")
-          .replacingOccurrences(of: "{x}", with: "\(tile.x)")
-          .replacingOccurrences(of: "{y}", with: "\(tile.y)")
+    for tile in spec.tilesToDownload {
+      // Replace the placeholders in the URL with the tile coordinates
+      let tileURL = tile.urlTemplate
+        .replacingOccurrences(of: "{z}", with: "\(tile.z)")
+        .replacingOccurrences(of: "{x}", with: "\(tile.x)")
+        .replacingOccurrences(of: "{y}", with: "\(tile.y)")
 
-        // Add a task to download the tile
+      // Add a task to download the tile
 
-        taskGroup.addTask {
-          // Download the tile
-          do {
-            let response = try await client.get(URI(string: tileURL))
-            guard response.status == .ok else {
-              print("Failed to download tile at \(tileURL): \(response.status)")
-              return
-            }
-
-            let data = response.body?.readableBytesView
-            // Process the tile data (e.g., save to disk or database)
-            print("Downloaded tile at \(tileURL)")
-          } catch {
-            print("Error downloading tile at \(tileURL): \(error)")
+      taskGroup.addTask {
+        // Download the tile
+        do {
+          let response = try await client.get(URI(string: tileURL))
+          guard response.status == .ok else {
+            print("Failed to download tile at \(tileURL): \(response.status)")
+            return
           }
+          
+          let data = response.body?.readableBytesView
+          // Process the tile data (e.g., save to disk or database)
+          print("Downloaded tile at \(tileURL)")
+        } catch {
+          print("Error downloading tile at \(tileURL): \(error)")
         }
       }
     }
@@ -247,11 +240,17 @@ enum SourceType: String {
   case image = "image"
 }
 
-func getTileURLTemplatesFromStyle(
+struct CacheLayerDefinition {
+  let type: SourceType
+  // Cache key used to store tiles in the database
+  let urlTemplate: String
+}
+
+func getCacheableTileLayersFromStyle(
   with app: Application,
   style: StyleDefinition
-) async throws -> [String] {
-  var templates: [String] = []
+) async throws -> [CacheLayerDefinition] {
+  var defs: [CacheLayerDefinition] = []
 
   let data = try await getJSONForStyle(with: app, style: style)
 
@@ -271,7 +270,12 @@ func getTileURLTemplatesFromStyle(
       }
         
       if let tiles = sourceDict["tiles"] as? [String] {
-        templates.append(contentsOf: tiles)
+        if tiles.count != 1 {
+          throw RuntimeError.invalidArgument(
+            "Expected exactly one tile URL template for source type \(sourceType), found \(tiles.count) (multiple tile URLs are not yet supported)"
+          )
+        }
+        defs.append(CacheLayerDefinition(type: sourceType, urlTemplate: tiles[0]))
       } else if let urlTemplate = sourceDict["url"] as? String {
         // We are working with a tilejson file and need to infer the tile URL templates
         // We could do this by fetching and parsing the tileJSON also, but tileJSONs passed by mapbox
@@ -279,12 +283,12 @@ func getTileURLTemplatesFromStyle(
         let url: String = try inferTileURLTemplate(
           from: urlTemplate, sourceType: sourceType
         )
-        templates.append(url)
+        defs.append(CacheLayerDefinition(type: sourceType, urlTemplate: url))
       }
     }
   }
 
-  return templates
+  return defs
 }
 
 func inferTileURLTemplate(from tileJSONURL: String, sourceType: SourceType) throws -> String {
