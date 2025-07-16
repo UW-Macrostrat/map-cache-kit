@@ -109,7 +109,6 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
   // Get the intersecting tiles
   let tiles = try getIntersectingTiles(
     for: polygon.geometry, minZoom: definition.minZoom, maxZoom: definition.maxZoom)
-  let client = app.client
   
   // Get the tile URL templates from the style definition
   let tileURLTemplates = try await getTileURLTemplatesFromStyle(
@@ -240,6 +239,14 @@ func getJSONForStyle(
   }
 }
 
+enum SourceType: String {
+  case vector = "vector"
+  case raster = "raster"
+  case rasterDem = "raster-dem"
+  case geojson = "geojson"
+  case image = "image"
+}
+
 func getTileURLTemplatesFromStyle(
   with app: Application,
   style: StyleDefinition
@@ -254,10 +261,25 @@ func getTileURLTemplatesFromStyle(
     let sources = jsonObject["sources"] as? [String: Any]
   {
     for (_, source) in sources {
-      if let sourceDict = source as? [String: Any] {
-        if let tiles = sourceDict["tiles"] as? [String] {
-          templates.append(contentsOf: tiles)
-        }
+      guard let sourceDict = source as? [String: Any],
+            let st = sourceDict["type"] as? String,
+            let sourceType = SourceType(rawValue: st)
+      else {
+        throw RuntimeError.invalidArgument(
+          "Invalid source format in style JSON: \(source)"
+        )
+      }
+        
+      if let tiles = sourceDict["tiles"] as? [String] {
+        templates.append(contentsOf: tiles)
+      } else if let urlTemplate = sourceDict["url"] as? String {
+        // We are working with a tilejson file and need to infer the tile URL templates
+        // We could do this by fetching and parsing the tileJSON also, but tileJSONs passed by mapbox
+        // don't pass the correct requests anyway
+        let url: String = try inferTileURLTemplate(
+          from: urlTemplate, sourceType: sourceType
+        )
+        templates.append(url)
       }
     }
   }
@@ -265,8 +287,26 @@ func getTileURLTemplatesFromStyle(
   return templates
 }
 
+func inferTileURLTemplate(from tileJSONURL: String, sourceType: SourceType) throws -> String {
+  if !tileJSONURL.starts(with: "mapbox://") {
+    throw RuntimeError.invalidArgument("Inferring tile URLs from non-Mapbox TileJSONs is not supported at the moment")
+  }
+  
+  switch sourceType {
+  case .vector:
+    return tileJSONURL.replacingOccurrences(of: "mapbox://", with: "mapbox://tiles/") + "/{z}/{x}/{y}.vector.pbf"
+  case .raster:
+    return tileJSONURL.replacingOccurrences(of: "mapbox://", with: "mapbox://tiles/") + "/{z}/{x}/{y}{ratio}.png"
+  case .rasterDem:
+    // Raster DEMs do not support ratios
+    return tileJSONURL.replacingOccurrences(of: "mapbox://", with: "mapbox://tiles/") + "/{z}/{x}/{y}.png"
+  default:
+    throw RuntimeError.invalidArgument("\(sourceType) sources are not supported for tileJSON inference")
+  }
+}
+
 func persistTileToDatabase(
-  db: Database, tile: TileCoord, data: Data, compressed: Bool, regionId: Int
+  db: any Database, tile: TileCoord, data: Data, compressed: Bool, regionId: Int
 ) async throws {
   let sql = """
     WITH inserted_tile AS (
@@ -282,7 +322,7 @@ func persistTileToDatabase(
     """
 
   // Cast to SQLDatabase
-  guard let db = db as? SQLiteDatabase else {
+  guard let db = db as? any SQLiteDatabase else {
     throw RuntimeError.invalidArgument("Database must be an SQLDatabase")
   }
 
@@ -299,7 +339,7 @@ func persistTileToDatabase(
 }
 
 func persistResourceToDatabase(
-  db: Database, url: String, data: Data, compressed: Bool, kind: ResourceKind, regionId: Int
+  db: any Database, url: String, data: Data, compressed: Bool, kind: ResourceKind, regionId: Int
 ) async throws {
   let sql = """
     WITH inserted_resource AS (
@@ -314,7 +354,7 @@ func persistResourceToDatabase(
     ON CONFLICT (region_id, url) DO NOTHING
     """
 
-  guard let db = db as? SQLiteDatabase else {
+  guard let db = db as? any SQLiteDatabase else {
     throw RuntimeError.invalidArgument("Database must be an SQLDatabase")
   }
 

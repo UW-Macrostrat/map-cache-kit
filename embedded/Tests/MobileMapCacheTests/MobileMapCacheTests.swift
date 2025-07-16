@@ -152,7 +152,40 @@ struct MobileMapCacheTests {
       
     }
   }
-
+  
+  @Test("Find existing tiles for Mapbox style")
+  func findExistingTilesForMapboxStyle() async throws {
+    try await withExistingDatabase { app in
+      // Find existing tiles for a mapbox style that uses tilejson files to define the source
+      let cacheRegion = try! Polygon(wkt: "POLYGON((-10 -10, -10 10, 10 10, 10 -10, -10 -10))")
+      
+      // Get style excerpt
+      guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "excerpt.json") else {
+        throw RuntimeError.invalidArgument("Style excerpt not found")
+      }
+      // Get JSON as a string
+      let styleJSON = try String(contentsOf: styleURL, encoding: .utf8)
+      
+      let styleDefinition = StyleDefinition.jsonData(styleJSON)
+      
+      let definition = CacheRegionDefinition(
+        style: styleDefinition,
+        minZoom: 0,
+        maxZoom: 1,
+        pixelRatio: 1,
+        glyphsRasterization: 1,
+        geometry: cacheRegion
+      )
+      
+      let res = try await getTilesToDownload(with: app, using: definition)
+      
+      #expect(res.tilesToDownload.count == 0)
+      #expect(res.tilesAlreadyDownloaded.count == 5)
+      // More than a 100 kb of tiles should be downloaded
+      #expect(Double(res.totalSizeOfTilesDownloaded) > 1e5)
+      
+    }
+  }
 }
 
 @Suite("Tests with new cache database")
