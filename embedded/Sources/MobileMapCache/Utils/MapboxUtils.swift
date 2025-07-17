@@ -139,13 +139,22 @@ func findFontsRequestedByMapboxStyle(spec: StyleSpec) -> Set<String> {
         let fontStack = fonts.joined(separator: ",")
         fontStacks.insert(fontStack)
       case .expression(let value):
-        // Print the expression for debugging
-        if let jsonData = try? JSONEncoder().encode(value),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
-          print("Expression ignored for text-font: \(jsonString)")
-        } else {
-          print("Invalid value of text-font")
+        // Traverse the expression to find any "literal" values
+        // This may not get everything but it will be pretty good
+        
+        let literals = value.literals()
+        
+        for stack in literals {
+          let val = stack.joined(separator: ",")
+          fontStacks.insert(val)
         }
+        
+//        if let jsonData = try? JSONEncoder().encode(value),
+//           let jsonString = String(data: jsonData, encoding: .utf8) {
+//          print("Tried to parse expression for text-font: \(jsonString)")
+//        } else {
+//          print("Skipping invalid expression for text-font")
+//        }
       }
     }
   }

@@ -203,7 +203,7 @@ func findFontsRequestedByMapboxStyle() async throws {
 
   let fontStacks = findFontsRequestedByMapboxStyle(spec: styleSpec)
   
-  #expect(fontStacks.count > 0, "There should be at least one font stack in the style")
+  #expect(fontStacks.count == 6, "There should be at least one font stack in the style")
   
 }
 
