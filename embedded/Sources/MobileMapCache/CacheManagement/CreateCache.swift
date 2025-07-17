@@ -162,6 +162,26 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
   )
 }
 
+func findResourceInDatabase(
+  db: any Database, url: String, kind: ResourceKind
+) async throws -> Int64? {
+  let sql: SQLQueryString = """
+    SELECT length(data) as size
+    FROM resources
+    WHERE url = \(bind: url) AND kind = \(bind: kind.rawValue)
+    LIMIT 1
+    """
+  
+  guard let db = db as? any SQLDatabase else {
+    throw RuntimeError.databaseError("Database is not an SQLDatabase")
+  }
+  
+  if let row = try await db.raw(sql).first(decodingColumn: "size", as: Int64.self) {
+    return row
+  }
+  return nil
+}
+
 func downloadTileCache(with app: Application, using definition: CacheRegionDefinition) async throws
 {
   // Validate the definition
@@ -232,12 +252,13 @@ func getJSONForStyle(
   }
 }
 
-enum SourceType: String {
+enum SourceType: String, Codable {
   case vector = "vector"
   case raster = "raster"
   case rasterDem = "raster-dem"
   case geojson = "geojson"
   case image = "image"
+  case video = "video"
 }
 
 struct CacheLayerDefinition {

@@ -186,9 +186,77 @@ struct MobileMapCacheTests {
       
     }
   }
+  
+  @Test("Find fonts requested by a Mapbox style")
+  func findFontsInCacheDatabase() async throws {
+    try await withExistingDatabase { app in
+      guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "json") else {
+        throw RuntimeError.invalidArgument("Style not found")
+      }
+      
+      let style = try String(contentsOf: styleURL, encoding: .utf8)
+      
+      // decode the style
+      let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: Data(style.utf8))
+      
+      let fontStacks = findFontsRequestedByMapboxStyle(spec: styleSpec)
+      
+      var totalSize: Int64 = 0
+      
+      let fontStackURLs = try getFontStackURLs(styleSpec, fontStacks: Array(fontStacks), ranges: ["0-255"])
+      
+      for url in fontStackURLs {
+        guard let size = try await findResourceInDatabase(db: app.db, url: url, kind: .font) else {
+          throw RuntimeError.invalidArgument("Font stack \(url) not found in database")
+        }
+        
+        totalSize += size
+        
+      }
+      
+      #expect(fontStacks.count == 6, "There should be at least one font stack in the style")
+      #expect(Double(totalSize) > 1e5, "Total size of fonts should be greater than 0")
+    }
+  }
+  
+  
+  @Test("Find all resources requested by mapbox style")
+  func findAllResourcesRequestedByMapboxStyle() async throws {
+    try await withExistingDatabase { app in
+      guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "json") else {
+        throw RuntimeError.invalidArgument("Style excerpt not found")
+      }
+      
+      let style = try String(contentsOf: styleURL, encoding: .utf8)
+      
+      // decode the style
+      let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: Data(style.utf8))
+      
+      let resources = try findResourcesRequestedByMapboxStyle(spec: styleSpec, options: ResourceFindOptions(maxCodePoint: 255))
+      
+      #expect(resources.count > 10, "There should be at least ten resources requested by the style")
+      
+      let fontStacks = resources.filter { $0.kind == .font }
+      #expect(fontStacks.count == 6, "There should be six font stacks in the style")
+      let spriteResources = resources.filter { $0.kind == .sprite || $0.kind == .spritejson }
+      #expect(spriteResources.count == 4, "There should be four sprite resources in the style")
+      let sourceResources = resources.filter { $0.kind == .source }
+      #expect(sourceResources.count == 3, "There should be three source resources in the style")
+  
+      var totalSize: Int64 = 0
+      for resource in resources {
+        guard let size = try await findResourceInDatabase(db: app.db, url: resource.urlTemplate, kind: resource.kind) else {
+          throw RuntimeError.invalidArgument("Resource \(resource.urlTemplate) not found in database")
+        }
+        
+        totalSize += size
+        
+      }
+      
+      #expect(Double(totalSize) > 4e5, "Total size of resources should be greater than 400 kb")
+    }
+  }
 }
-
-
 
 @Test("Find fonts requested by a Mapbox style")
 func findFontsRequestedByMapboxStyle() async throws {

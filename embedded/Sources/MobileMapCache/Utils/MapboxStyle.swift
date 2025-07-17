@@ -162,15 +162,19 @@ enum Value<T: Codable>: Codable {
   }
 }
 
+
+
 struct StyleSpec: Codable {
   /** A partial spec for decoding styles */
   let version: Int
   let sources: [String: StyleSource]
   let layers: [StyleLayer]
   let glyphs: String?
-  
+  let sprite: String?
+  let owner: String?
+
   struct StyleSource: Codable {
-    let type: String
+    let type: SourceType
     let tiles: [String]?
     let url: String?
   }

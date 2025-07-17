@@ -128,6 +128,29 @@ extension NSTextCheckingResult {
   }
 }
 
+struct ResourceFindOptions {
+  var maxCodePoint: Int = 65535 // Default to the maximum Unicode code point
+}
+
+func findResourcesRequestedByMapboxStyle(spec: StyleSpec, options: ResourceFindOptions = ResourceFindOptions()) throws -> Set<RequestedResource> {
+  var resources = Set<RequestedResource>()
+  
+  // Find font stacks
+  let fontStacks = try findFontStacksRequestedByMapboxStyle(spec: spec, maxCodePoint: options.maxCodePoint)
+  resources.formUnion(fontStacks.map { RequestedResource(urlTemplate: $0.urlTemplate, kind: .font) })
+  
+  // Find sprites
+  let sprites = try findSpritesRequestedByMapboxStyle(spec: spec)
+  resources.formUnion(sprites)
+  
+  // Find sources
+  let sources = try findSourcesRequestedByMapboxStyle(spec: spec)
+  resources.formUnion(sources)
+  
+  return resources
+}
+
+
 
 func findFontsRequestedByMapboxStyle(spec: StyleSpec) -> Set<String> {
   var fontStacks: Set<String> = []
@@ -148,15 +171,111 @@ func findFontsRequestedByMapboxStyle(spec: StyleSpec) -> Set<String> {
           let val = stack.joined(separator: ",")
           fontStacks.insert(val)
         }
-        
-//        if let jsonData = try? JSONEncoder().encode(value),
-//           let jsonString = String(data: jsonData, encoding: .utf8) {
-//          print("Tried to parse expression for text-font: \(jsonString)")
-//        } else {
-//          print("Skipping invalid expression for text-font")
-//        }
       }
     }
   }
   return fontStacks
+}
+
+func buildFontStackURL(_ urlTemplate: String, fontStack: String, range: String) -> String {
+  // Encode the name of the font stack
+  let encodedFontStack = fontStack.replacingOccurrences(of: " ", with: "%20")
+    .replacingOccurrences(of: ",", with: "%2c")
+    .replacingOccurrences(of: "/", with: "%2f")
+    .replacingOccurrences(of: ":", with: "%3a")
+  
+  // Construct the URL for the font stack
+  return urlTemplate
+    .replacingOccurrences(of: "{fontstack}", with: encodedFontStack)
+    .replacingOccurrences(of: "{range}", with: range)
+}
+
+func getFontStackURLs(_ styleSpec: StyleSpec, fontStacks: [String], ranges: [String] = ["0-255"]) throws -> [String] {
+  var glyphsURLTemplate: String
+  if let glyphs = styleSpec.glyphs {
+    // Check if the glyphs URL is in the font stacks
+    glyphsURLTemplate = glyphs
+  } else if let owner = styleSpec.owner {
+    // If the glyphs URL is not specified, use the owner to construct the URL
+    glyphsURLTemplate = "mapbox://fonts/\(owner)/{fontstack}/{range}.pbf"
+  } else {
+    throw RuntimeError.invalidArgument("Glyphs URL not found in style spec")
+  }
+  
+  var fontStackURLs: [String] = []
+  for fontStack in fontStacks {
+    for range in ranges {
+      fontStackURLs.append(buildFontStackURL(glyphsURLTemplate, fontStack: fontStack, range: range))
+    }
+  }
+  return fontStackURLs
+}
+
+struct RequestedResource: Hashable, Equatable {
+  let urlTemplate: String
+  let kind: ResourceKind
+  
+  var thirdParty: Bool {
+    return !urlTemplate.hasPrefix("mapbox://")
+  }
+}
+
+func findFontStacksRequestedByMapboxStyle(spec: StyleSpec, maxCodePoint: Int = 65535) throws -> Set<RequestedResource> {
+  
+  let fonts = Array(findFontsRequestedByMapboxStyle(spec: spec))
+  
+  var ranges: [String] = []
+  // Go by ranges of 256 up to the max code point
+  for start in stride(from: 0, to: maxCodePoint, by: 256) {
+    let end = min(start + 255, maxCodePoint)
+    ranges.append("\(start)-\(end)")
+  }
+
+  var fontStacks = Set<RequestedResource>()
+  let fontStackURLs = try getFontStackURLs(spec, fontStacks: fonts, ranges: ranges)
+  
+  for url in fontStackURLs {
+    fontStacks.insert(RequestedResource(urlTemplate: url, kind: .font))
+  }
+  
+  return fontStacks
+}
+
+func findSpritesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedResource> {
+  var sprites = Set<RequestedResource>()
+  
+  guard let sprite = spec.sprite else {
+    return sprites
+  }
+  
+  let kinds: [ResourceKind] = [.sprite, .spritejson]
+  let suffixes = ["", "@2x"]
+  
+  // Iterate over each kind and suffix to generate the URLs
+  for kind in kinds {
+    let kindExt = kind == .sprite ? ".png" : ".json"
+    for suffix in suffixes {
+      let urlTemplate = sprite + suffix + kindExt
+      sprites.insert(RequestedResource(urlTemplate: urlTemplate, kind: kind))
+    }
+  }
+
+  return sprites
+}
+
+func findSourcesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedResource> {
+  var sourceData: Set<RequestedResource> = []
+  
+  for source in spec.sources.values {
+    switch source.type {
+    case .raster, .vector, .rasterDem, .geojson:
+      if let url = source.url {
+        sourceData.insert(RequestedResource(urlTemplate: url, kind: .source))
+      }
+    default:
+      break
+    }
+  }
+  
+  return sourceData
 }
