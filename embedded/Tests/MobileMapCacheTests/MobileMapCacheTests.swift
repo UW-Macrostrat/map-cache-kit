@@ -30,39 +30,41 @@ extension TileCoord: @unchecked Sendable {
   
 }
 
-fileprivate func withApp(_ test: (Application) async throws -> Void) async throws {
+func withApp(_ test: (Application) async throws -> Void) async throws {
   // Use an in-memory SQLite database for testing
   let cacheDatabase = SQLiteConfiguration(storage: .memory)
   try await withApp(cacheDatabase: cacheDatabase, test)
 }
 
+func withExistingDatabase(_ test: (Application) async throws -> Void) async throws {
+  // Get fixture
+  guard let fixtureURL = Bundle.module.url(forResource: "Rockd-map-cache-v1", withExtension: "db") else {
+    throw RuntimeError.invalidArgument("Fixture database not found")
+  }
+  
+  // Copy the test fixture to a temporary path
+  // random file name to avoid conflicts
+  let fixtureName = UUID().uuidString + ".db"
+  let tempDirectory = FileManager.default.temporaryDirectory
+  let fixturePath = tempDirectory.appendingPathComponent(fixtureName)
+  // Delete the file if it exists
+  if FileManager.default.fileExists(atPath: fixturePath.path) {
+    try FileManager.default.removeItem(at: fixturePath)
+  }
+  try FileManager.default.copyItem(at: fixtureURL, to: fixturePath)
+  
+  // Ensure the file exists
+  guard FileManager.default.fileExists(atPath: fixturePath.path) else {
+    throw RuntimeError.invalidArgument("Fixture database file does not exist at \(fixturePath.path)")
+  }
+  
+  let cacheDatabase = SQLiteConfiguration.file(fixturePath.path)
+  
+  try await withApp(cacheDatabase: cacheDatabase, test)
+}
+
 @Suite("Tests with existing cache database", .serialized)
 struct MobileMapCacheTests {
-  private func withExistingDatabase(_ test: (Application) async throws -> Void) async throws {
-    // Get fixture
-    guard let fixtureURL = Bundle.module.url(forResource: "Rockd-map-cache-v1", withExtension: "db") else {
-      throw RuntimeError.invalidArgument("Fixture database not found")
-    }
-    
-    // Copy the test fixture to a temporary path
-    let tempDirectory = FileManager.default.temporaryDirectory
-    let fixturePath = tempDirectory.appendingPathComponent("Rockd-map-cache-v1.db")
-    // Delete the file if it exists
-    if FileManager.default.fileExists(atPath: fixturePath.path) {
-      try FileManager.default.removeItem(at: fixturePath)
-    }
-    try FileManager.default.copyItem(at: fixtureURL, to: fixturePath)
-    
-    // Ensure the file exists
-    guard FileManager.default.fileExists(atPath: fixturePath.path) else {
-      throw RuntimeError.invalidArgument("Fixture database file does not exist at \(fixturePath.path)")
-    }
-    
-    let cacheDatabase = SQLiteConfiguration.file(fixturePath.path)
-    
-    try await withApp(cacheDatabase: cacheDatabase, test)
-  }
-
   @Test("Load an existing cache database")
   func loadExistingCacheDatabase() async throws {
     try await withExistingDatabase  { app in

@@ -96,13 +96,36 @@ struct CandidateTile {
   let urlTemplate: String
 }
 
-struct CacheInfo {
+struct RegionTileInfo {
   let tilesToDownload: [CandidateTile]
   let tilesAlreadyDownloaded: [CandidateTile]
   let totalSizeOfTilesDownloaded: Int64
 }
 
-func getTilesToDownload(with app: Application, using definition: CacheRegionDefinition) async throws -> CacheInfo {
+struct RegionResourceInfo {
+  let resourcesToDownload: [RequestedResource]
+  let resourcesAlreadyDownloaded: [RequestedResource]
+  let totalSizeOfResourcesDownloaded: Int64
+}
+
+struct RegionAssetsToDownload {
+  let tiles: RegionTileInfo
+  let resources: RegionResourceInfo
+}
+
+func getRegionAssets(
+  with app: Application, using definition: CacheRegionDefinition
+) async throws -> RegionAssetsToDownload {
+  let tiles = try await getTilesToDownload(with: app, using: definition)
+  
+  // Get the resources to download
+  let resources = try await getResourcesToDownload(with: app, using: definition)
+
+  return RegionAssetsToDownload(tiles: tiles, resources: resources)
+}
+
+
+func getTilesToDownload(with app: Application, using definition: CacheRegionDefinition) async throws -> RegionTileInfo {
   // Convert the geometry to a GEOSwift Polygon
   let polygon = definition.geometry
   
@@ -155,12 +178,50 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
     }
   }
   
-  return CacheInfo(
+  return RegionTileInfo(
     tilesToDownload: tilesToDownload,
     tilesAlreadyDownloaded: tilesAlreadyDownloaded,
     totalSizeOfTilesDownloaded: totalSizeOfTilesDownloaded
   )
 }
+
+
+func getResourcesToDownload(
+  with app: Application, using definition: CacheRegionDefinition
+) async throws -> RegionResourceInfo {
+
+  let jsonData = try await getJSONForStyle(with: app, style: definition.style)
+  // decode the style
+  let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: jsonData)
+  
+  let resources = try findResourcesRequestedByMapboxStyle(spec: styleSpec, options: ResourceFindOptions(maxCodePoint: 255))
+
+  // Check which resources are already downloaded
+  var resourcesToDownload: [RequestedResource] = []
+  var resourcesAlreadyDownloaded: [RequestedResource] = []
+  var totalSizeOfResourcesDownloaded: Int64 = 0
+  
+  for resource in resources {
+    // Check if the resource is already in the database
+    if let size = try await findResourceInDatabase(
+      db: app.db, url: resource.urlTemplate, kind: resource.kind) {
+      // Resource already exists
+      totalSizeOfResourcesDownloaded += size
+      resourcesAlreadyDownloaded.append(resource)
+    } else {
+      // Resource needs to be downloaded
+      resourcesToDownload.append(resource)
+    }
+  }
+  
+  return RegionResourceInfo(
+    resourcesToDownload: resourcesToDownload,
+    resourcesAlreadyDownloaded: resourcesAlreadyDownloaded,
+    totalSizeOfResourcesDownloaded: totalSizeOfResourcesDownloaded
+  )
+}
+
+
 
 func findResourceInDatabase(
   db: any Database, url: String, kind: ResourceKind
@@ -465,8 +526,15 @@ extension TileCoord {
 }
 
 func getParentTile(for geom: Geometry) throws -> TileCoord {
+  var tileCoord = TileCoord(0, 0, 0)
+  
+  // Ensure the tile coord envelope is clipped to the web mercator bounds
+  guard let geom1 = try tileCoord.envelope.intersection(with: geom) else {
+    throw RuntimeError.invalidArgument("Geometry does not intersect with tile matrix bounds")
+  }
+    
   // Geometry is assumed to be in EPSG:4326
-  let env = try geom.envelope()
+  let env = try geom1.envelope()
 
   // Get x range and y range
 
@@ -480,12 +548,7 @@ func getParentTile(for geom: Geometry) throws -> TileCoord {
     maxY: topRight.y
   )
   
-  var tileCoord = TileCoord(0, 0, 0)
-  
   while tileCoord.z < 30 {
-    guard try tileCoord.envelope.covers(webMercatorEnvelope) else {
-      throw RuntimeError.invalidArgument("Geometry does not fit in tile envelope")
-    }
     // Check if any of the child tiles cover the geometry
     let x0 = tileCoord.x * 2
     let y0 = tileCoord.y * 2
