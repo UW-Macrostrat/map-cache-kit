@@ -72,4 +72,37 @@ struct MobileMapCacheDownloadTests {
       
     }
   }
+  
+  @Test("Expect that tiles need to be downloaded for a new cache area (more local)")
+  func findAssetsForNewRegion() async throws {
+    try await withExistingDatabase { app in
+      guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "json") else {
+        throw RuntimeError.invalidArgument("Style excerpt not found")
+      }
+      
+      let topLeft = Point(x: -10.0, y: 50.0)
+      let bottomRight = Point(x: 10.0, y: 40.0)
+      
+      let newRegion = Envelope(minX: -10.0, maxX: 10.0, minY: 40.0, maxY: 50.0).geometry
+      
+      guard case .polygon(let polygon) = newRegion else {
+        throw RuntimeError.invalidArgument("New region is not a polygon")
+      }
+
+      let styleData = try String(contentsOf: styleURL, encoding: .utf8)
+      
+      // Create a new region definition that is smaller than the existing one
+      let def = CacheRegionDefinition(style: .jsonData(styleData), minZoom: 0, maxZoom: 2, pixelRatio: 2, glyphsRasterization: 1, geometry: polygon)
+      
+      // Get the assets for the new region
+      let regionInfo = try await getRegionAssets(with: app, using: def)
+      
+      #expect(regionInfo.tiles.tilesAlreadyDownloaded.count == 7, "There should be 13 tiles already downloaded for the region")
+      #expect(regionInfo.tiles.tilesToDownload.count == 6, "There should be 5 tiles to download for the region")
+      #expect(Double(regionInfo.tiles.totalSizeOfTilesDownloaded) > 2e5, "Total size of tiles should be greater than 300 kb")
+      
+      #expect(regionInfo.resources.resourcesAlreadyDownloaded.count == 13, "There should be 13 resources already downloaded for the region")
+      #expect(regionInfo.resources.resourcesToDownload.isEmpty, "There should be no resources to download for the region")
+    }
+  }
 }
