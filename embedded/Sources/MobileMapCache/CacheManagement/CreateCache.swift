@@ -15,22 +15,22 @@ import Vapor
  Frontend typescript types
 
  export interface CacheCreationData<Metadata extends object = {}> {
-   minZoom: number;
-   maxZoom: number;
-   geometry: GeoJSON.Geometry;
-   styleURL: string;
-   metadata: Metadata;
+ minZoom: number;
+ maxZoom: number;
+ geometry: GeoJSON.Geometry;
+ styleURL: string;
+ metadata: Metadata;
  }
 
  export interface OfflineRegionStatus {
-   completedResourceCount: number;
-   completedResourceSize: number;
-   requiredResourceCount: number;
-   completedTileCount: number;
-   completedTileSize: number;
-   requiredTileCount: number;
-   downloadState: "active" | "inactive";
-   requiredResourceCountIsPrecise: boolean;
+ completedResourceCount: number;
+ completedResourceSize: number;
+ requiredResourceCount: number;
+ completedTileCount: number;
+ completedTileSize: number;
+ requiredTileCount: number;
+ downloadState: "active" | "inactive";
+ requiredResourceCountIsPrecise: boolean;
  }
  */
 
@@ -60,6 +60,7 @@ struct CacheRegionDefinition: Codable {
 enum RuntimeError: Error {
   case invalidArgument(String)
   case databaseError(String)
+  case downloadFailed(String)
 }
 
 func getCacheRegion(from definition: CacheRegionDefinition) async throws {
@@ -113,33 +114,160 @@ struct RegionAssetsToDownload {
   let resources: RegionResourceInfo
 }
 
+enum RequestedAsset {
+  case tile(CandidateTile)
+  case resource(RequestedResource)
+}
+
+enum DownloadStatus {
+  case success(Data?)
+  case failure(any Error)
+}
+
+struct DownloadResult {
+  let uri: URI
+  let request: RequestedAsset
+  let result: DownloadStatus
+}
+
+func downloadRegionAssets(
+  with app: Application, using definition: CacheRegionDefinition, regionId: Int,
+  onProgress: @escaping (String, Int, Int) -> Void
+) async throws {
+  let client = app.client
+
+  // Get the assets to download
+  let assets = try await getRegionAssets(with: app, using: definition)
+
+  // Download tiles
+  var downloadedTiles = 0
+  let totalTiles = assets.tiles.tilesToDownload.count
+
+  await withTaskGroup(of: DownloadResult.self) { taskGroup in
+    for resource in assets.resources.resourcesToDownload {
+      let uri = URI(string: resource.urlTemplate)
+
+      taskGroup.addTask {
+        do {
+          let data = try await downloadFile(with: app, url: resource.urlTemplate)
+          guard let data else {
+            // Resource not found (404)
+            throw RuntimeError.downloadFailed("Resource not found at \(uri)")
+          }
+          try await persistResourceToDatabase(
+            db: app.db, url: resource.urlTemplate, data: data,
+            compressed: false, kind: resource.kind, regionId: regionId
+          )
+
+          return DownloadResult(
+            uri: uri, request: .resource(resource), result: .success(data)
+          )
+
+        } catch {
+          return DownloadResult(
+            uri: uri, request: .resource(resource), result: .failure(error)
+          )
+        }
+      }
+    }
+
+    for tile in assets.tiles.tilesToDownload {
+      let tileURL = tile.urlTemplate
+        .replacingOccurrences(of: "{z}", with: "\(tile.z)")
+        .replacingOccurrences(of: "{x}", with: "\(tile.x)")
+        .replacingOccurrences(of: "{y}", with: "\(tile.y)")
+
+      let uri = URI(string: tileURL)
+
+      taskGroup.addTask {
+        do {
+          let data = try await downloadFile(with: app, url: tileURL)
+          try await persistTileToDatabase(
+            db: app.db, tile: TileCoord(tile.x, tile.y, tile.z), data: data,
+            compressed: false, regionId: regionId
+          )
+
+          return DownloadResult(
+            uri: uri, request: .tile(tile), result: .success(data)
+          )
+
+        } catch {
+          return DownloadResult(
+            uri: uri, request: .tile(tile), result: .failure(error)
+          )
+        }
+      }
+    }
+
+    // Download resources
+    var downloadedResources = 0
+    let totalResources = assets.resources.resourcesToDownload.count
+    
+    // Handle completed downloads
+    for await result in taskGroup {
+      switch result.result {
+      case .success:
+        switch result.request {
+        case .tile:
+          downloadedTiles += 1
+          onProgress("tile", downloadedTiles, totalTiles)
+        case .resource:
+          downloadedResources += 1
+          onProgress("resource", downloadedResources, totalResources)
+        }
+      case .failure(let error):
+        print("Failed to download \(result.uri): \(error)")
+      }
+    }
+  }
+
+
+
+}
+
+func downloadFile(with app: Application, url: String) async throws -> Data? {
+  let client = app.client
+  let response = try await client.get(URI(string: url))
+
+  if response.status == .notFound {
+    // If 404 and allow404 is true, return nil
+    return nil
+  }
+
+  guard response.status == .ok, let body = response.body else {
+    throw RuntimeError.invalidArgument("Failed to download file from \(url)")
+  }
+  return Data(buffer: body)
+}
+
 func getRegionAssets(
   with app: Application, using definition: CacheRegionDefinition
 ) async throws -> RegionAssetsToDownload {
   let tiles = try await getTilesToDownload(with: app, using: definition)
-  
+
   // Get the resources to download
   let resources = try await getResourcesToDownload(with: app, using: definition)
 
   return RegionAssetsToDownload(tiles: tiles, resources: resources)
 }
 
-
-func getTilesToDownload(with app: Application, using definition: CacheRegionDefinition) async throws -> RegionTileInfo {
+func getTilesToDownload(with app: Application, using definition: CacheRegionDefinition) async throws
+  -> RegionTileInfo
+{
   // Convert the geometry to a GEOSwift Polygon
   let polygon = definition.geometry
-  
+
   // Get the intersecting tiles
   let tiles = try getIntersectingTiles(
     for: polygon.geometry, minZoom: definition.minZoom, maxZoom: definition.maxZoom)
-  
+
   // Get the tile URL templates from the style definition
   let tileLayerDefs = try await getCacheableTileLayersFromStyle(
     with: app, style: definition.style)
-  
+
   // Get all tiles that may need to be downloaded
   var candidateTiles: [CandidateTile] = []
-  
+
   for tile in tiles {
     for lyr in tileLayerDefs {
       // Special case for raster and raster-dem tiles (mapbox): no zoom 0 tiles for these types
@@ -147,18 +275,19 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
         continue
       }
       // Add the candidate tile
-      candidateTiles.append(CandidateTile(x: tile.x, y: tile.y, z: tile.z, urlTemplate: lyr.urlTemplate))
+      candidateTiles.append(
+        CandidateTile(x: tile.x, y: tile.y, z: tile.z, urlTemplate: lyr.urlTemplate))
     }
   }
-  
+
   guard let db = app.db as? any SQLDatabase else {
     throw RuntimeError.databaseError("Database is not an SQLDatabase")
   }
-  
+
   var tilesToDownload: [CandidateTile] = []
   var tilesAlreadyDownloaded: [CandidateTile] = []
   var totalSizeOfTilesDownloaded: Int64 = 0
-  
+
   // already downloaded tiles
   for candidate in candidateTiles {
     let sql: SQLQueryString = """
@@ -173,18 +302,17 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
       totalSizeOfTilesDownloaded += tileSize
       tilesAlreadyDownloaded.append(candidate)
     } else {
-    // If the tile is not in the database, we need to download it
+      // If the tile is not in the database, we need to download it
       tilesToDownload.append(candidate)
     }
   }
-  
+
   return RegionTileInfo(
     tilesToDownload: tilesToDownload,
     tilesAlreadyDownloaded: tilesAlreadyDownloaded,
     totalSizeOfTilesDownloaded: totalSizeOfTilesDownloaded
   )
 }
-
 
 func getResourcesToDownload(
   with app: Application, using definition: CacheRegionDefinition
@@ -193,18 +321,20 @@ func getResourcesToDownload(
   let jsonData = try await getJSONForStyle(with: app, style: definition.style)
   // decode the style
   let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: jsonData)
-  
-  let resources = try findResourcesRequestedByMapboxStyle(spec: styleSpec, options: ResourceFindOptions(maxCodePoint: 255))
+
+  let resources = try findResourcesRequestedByMapboxStyle(
+    spec: styleSpec, options: ResourceFindOptions(maxCodePoint: 255))
 
   // Check which resources are already downloaded
   var resourcesToDownload: [RequestedResource] = []
   var resourcesAlreadyDownloaded: [RequestedResource] = []
   var totalSizeOfResourcesDownloaded: Int64 = 0
-  
+
   for resource in resources {
     // Check if the resource is already in the database
     if let size = try await findResourceInDatabase(
-      db: app.db, url: resource.urlTemplate, kind: resource.kind) {
+      db: app.db, url: resource.urlTemplate, kind: resource.kind)
+    {
       // Resource already exists
       totalSizeOfResourcesDownloaded += size
       resourcesAlreadyDownloaded.append(resource)
@@ -213,15 +343,13 @@ func getResourcesToDownload(
       resourcesToDownload.append(resource)
     }
   }
-  
+
   return RegionResourceInfo(
     resourcesToDownload: resourcesToDownload,
     resourcesAlreadyDownloaded: resourcesAlreadyDownloaded,
     totalSizeOfResourcesDownloaded: totalSizeOfResourcesDownloaded
   )
 }
-
-
 
 func findResourceInDatabase(
   db: any Database, url: String, kind: ResourceKind
@@ -232,11 +360,11 @@ func findResourceInDatabase(
     WHERE url = \(bind: url) AND kind = \(bind: kind.rawValue)
     LIMIT 1
     """
-  
+
   guard let db = db as? any SQLDatabase else {
     throw RuntimeError.databaseError("Database is not an SQLDatabase")
   }
-  
+
   if let row = try await db.raw(sql).first(decodingColumn: "size", as: Int64.self) {
     return row
   }
@@ -254,7 +382,7 @@ func downloadTileCache(with app: Application, using definition: CacheRegionDefin
     throw RuntimeError.invalidArgument(
       "Maximum zoom level must be greater than or equal to minimum zoom level")
   }
-  
+
   let client = app.client
 
   let spec = try await getTilesToDownload(with: app, using: definition)
@@ -277,7 +405,7 @@ func downloadTileCache(with app: Application, using definition: CacheRegionDefin
             print("Failed to download tile at \(tileURL): \(response.status)")
             return
           }
-          
+
           let data = response.body?.readableBytesView
           // Process the tile data (e.g., save to disk or database)
           print("Downloaded tile at \(tileURL)")
@@ -338,19 +466,20 @@ func getCacheableTileLayersFromStyle(
 
   // Parse the JSON to extract tile URL templates
 
-  if let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+  if let jsonObject = try? JSONSerialization.jsonObject(with: data, options: [])
+    as? [String: Any],
     let sources = jsonObject["sources"] as? [String: Any]
   {
     for (_, source) in sources {
       guard let sourceDict = source as? [String: Any],
-            let st = sourceDict["type"] as? String,
-            let sourceType = SourceType(rawValue: st)
+        let st = sourceDict["type"] as? String,
+        let sourceType = SourceType(rawValue: st)
       else {
         throw RuntimeError.invalidArgument(
           "Invalid source format in style JSON: \(source)"
         )
       }
-        
+
       if let tiles = sourceDict["tiles"] as? [String] {
         if tiles.count != 1 {
           throw RuntimeError.invalidArgument(
@@ -375,24 +504,29 @@ func getCacheableTileLayersFromStyle(
 
 func inferTileURLTemplate(from tileJSONURL: String, sourceType: SourceType) throws -> String {
   if !tileJSONURL.starts(with: "mapbox://") {
-    throw RuntimeError.invalidArgument("Inferring tile URLs from non-Mapbox TileJSONs is not supported at the moment")
+    throw RuntimeError.invalidArgument(
+      "Inferring tile URLs from non-Mapbox TileJSONs is not supported at the moment")
   }
-  
+
   switch sourceType {
   case .vector:
-    return tileJSONURL.replacingOccurrences(of: "mapbox://", with: "mapbox://tiles/") + "/{z}/{x}/{y}.vector.pbf"
+    return tileJSONURL.replacingOccurrences(of: "mapbox://", with: "mapbox://tiles/")
+      + "/{z}/{x}/{y}.vector.pbf"
   case .raster:
-    return tileJSONURL.replacingOccurrences(of: "mapbox://", with: "mapbox://tiles/") + "/{z}/{x}/{y}{ratio}.png"
+    return tileJSONURL.replacingOccurrences(of: "mapbox://", with: "mapbox://tiles/")
+      + "/{z}/{x}/{y}{ratio}.png"
   case .rasterDem:
     // Raster DEMs do not support ratios
-    return tileJSONURL.replacingOccurrences(of: "mapbox://", with: "mapbox://tiles/") + "/{z}/{x}/{y}.png"
+    return tileJSONURL.replacingOccurrences(of: "mapbox://", with: "mapbox://tiles/")
+      + "/{z}/{x}/{y}.png"
   default:
-    throw RuntimeError.invalidArgument("\(sourceType) sources are not supported for tileJSON inference")
+    throw RuntimeError.invalidArgument(
+      "\(sourceType) sources are not supported for tileJSON inference")
   }
 }
 
 func persistTileToDatabase(
-  db: any Database, tile: TileCoord, data: Data, compressed: Bool, regionId: Int
+  db: any Database, tile: TileCoord, data: Data?, compressed: Bool, regionId: Int
 ) async throws {
   let sql = """
     WITH inserted_tile AS (
@@ -411,12 +545,19 @@ func persistTileToDatabase(
   guard let db = db as? any SQLiteDatabase else {
     throw RuntimeError.invalidArgument("Database must be an SQLDatabase")
   }
+  
+  let _data: SQLiteData
+  if let data {
+    _data = .blob(ByteBuffer(data: data))
+  } else {
+    _data = .null
+  }
 
   let params: [SQLiteData] = [
     .integer(tile.x),
     .integer(tile.y),
     .integer(tile.z),
-    .blob(ByteBuffer(data: data)),
+    _data,
     .integer(compressed ? 1 : 0),
     .integer(regionId),
   ]
@@ -504,9 +645,9 @@ func getIntersectingTiles(for geom: Geometry, minZoom: Int, maxZoom: Int) throws
       tiles.append(contentsOf: currentLevelTiles)
     }
   }
-  
+
   // Filter tiles that are less than the minimum zoom
-  return tiles.filter { $0.z >= minZoom }  
+  return tiles.filter { $0.z >= minZoom }
 }
 
 extension TileCoord {
@@ -527,12 +668,12 @@ extension TileCoord {
 
 func getParentTile(for geom: Geometry) throws -> TileCoord {
   var tileCoord = TileCoord(0, 0, 0)
-  
+
   // Ensure the tile coord envelope is clipped to the web mercator bounds
   guard let geom1 = try tileCoord.envelope.intersection(with: geom) else {
     throw RuntimeError.invalidArgument("Geometry does not intersect with tile matrix bounds")
   }
-    
+
   // Geometry is assumed to be in EPSG:4326
   let env = try geom1.envelope()
 
@@ -540,26 +681,26 @@ func getParentTile(for geom: Geometry) throws -> TileCoord {
 
   let bottomLeft = epsg4326ToWebMercator(point: env.minXMinY)
   let topRight = epsg4326ToWebMercator(point: env.maxXMaxY)
-  
+
   let webMercatorEnvelope = Envelope(
     minX: bottomLeft.x,
     maxX: topRight.x,
     minY: bottomLeft.y,
     maxY: topRight.y
   )
-  
+
   while tileCoord.z < 30 {
     // Check if any of the child tiles cover the geometry
     let x0 = tileCoord.x * 2
     let y0 = tileCoord.y * 2
     let z = tileCoord.z + 1
     let childTiles = [
-      TileCoord(x0, y0, z),     // Bottom-left
-      TileCoord(x0 + 1, y0, z), // Bottom-right
-      TileCoord(x0, y0 + 1, z), // Top-left
-      TileCoord(x0 + 1, y0 + 1, z) // Top-right
+      TileCoord(x0, y0, z),  // Bottom-left
+      TileCoord(x0 + 1, y0, z),  // Bottom-right
+      TileCoord(x0, y0 + 1, z),  // Top-left
+      TileCoord(x0 + 1, y0 + 1, z),  // Top-right
     ]
-    
+
     for childTile in childTiles {
       if try childTile.envelope.covers(webMercatorEnvelope) {
         tileCoord = childTile
@@ -576,14 +717,14 @@ func getParentTile(for geom: Geometry) throws -> TileCoord {
 /**
 
  A = earth radius
- 
+
  public inverse(xy: XY): LonLat {
  return [
  (xy[0] * R2D) / A,
  (Math.PI * 0.5 - 2.0 * Math.atan(Math.exp(-xy[1] / A))) * R2D,
  ];
  }
- 
+
  public forward(ll: LonLat): XY {
  const xy: LonLat = [
  A * ll[0] * D2R,
@@ -596,8 +737,8 @@ func getParentTile(for geom: Geometry) throws -> TileCoord {
  xy[1] < -MAXEXTENT && (xy[1] = -MAXEXTENT);
  return xy;
  }
- 
- 
+
+
  */
 
 let D2R = Double.pi / 180.0
