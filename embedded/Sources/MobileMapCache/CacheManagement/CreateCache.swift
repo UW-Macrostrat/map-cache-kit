@@ -130,18 +130,30 @@ struct DownloadResult {
   let result: DownloadStatus
 }
 
+struct CacheRegionProgress: Content {
+  let regionID: Int
+  let resourcesDownloaded: Int
+  let resourcesFailed: Int
+  let resourcesTotal: Int
+  let tilesDownloaded: Int
+  let tilesTotal: Int
+  let tilesFailed: Int
+  
+  func progress() -> Double {
+    let total = Double(resourcesTotal + tilesTotal)
+    guard total > 0 else { return 1.0 }
+    return Double(resourcesDownloaded + tilesDownloaded + resourcesFailed + tilesFailed) / total
+  }
+}
+
 func downloadRegionAssets(
   with app: Application, using definition: CacheRegionDefinition, regionId: Int,
-  onProgress: @escaping (String, Int, Int) -> Void
+  onProgress: @escaping (CacheRegionProgress) -> Void
 ) async throws {
   let client = app.client
 
   // Get the assets to download
   let assets = try await getRegionAssets(with: app, using: definition)
-
-  // Download tiles
-  var downloadedTiles = 0
-  let totalTiles = assets.tiles.tilesToDownload.count
 
   await withTaskGroup(of: DownloadResult.self) { taskGroup in
     for resource in assets.resources.resourcesToDownload {
@@ -199,9 +211,27 @@ func downloadRegionAssets(
       }
     }
 
+    
+    // Download tiles
+    var downloadedTiles = 0
+    var failedTiles = 0
+    let totalTiles = assets.tiles.tilesToDownload.count
     // Download resources
     var downloadedResources = 0
+    var failedResources = 0
     let totalResources = assets.resources.resourcesToDownload.count
+    
+    let initialProgress = CacheRegionProgress(
+      regionID: regionId,
+      resourcesDownloaded: 0,
+      resourcesFailed: 0,
+      resourcesTotal: totalResources,
+      tilesDownloaded: 0,
+      tilesTotal: totalTiles,
+      tilesFailed: 0
+    )
+    
+    onProgress(initialProgress)
     
     // Handle completed downloads
     for await result in taskGroup {
@@ -210,14 +240,30 @@ func downloadRegionAssets(
         switch result.request {
         case .tile:
           downloadedTiles += 1
-          onProgress("tile", downloadedTiles, totalTiles)
         case .resource:
           downloadedResources += 1
-          onProgress("resource", downloadedResources, totalResources)
         }
       case .failure(let error):
-        print("Failed to download \(result.uri): \(error)")
+        switch result.request {
+        case .tile:
+          failedTiles += 1
+        case .resource:
+          failedResources += 1
+        }
       }
+      
+      let val  = CacheRegionProgress(
+        regionID: regionId,
+        resourcesDownloaded: downloadedResources,
+        resourcesFailed: failedResources,
+        resourcesTotal: totalResources,
+        tilesDownloaded: downloadedTiles,
+        tilesTotal: totalTiles,
+        tilesFailed: failedTiles
+      )
+      
+      onProgress(val)
+      
     }
   }
 
