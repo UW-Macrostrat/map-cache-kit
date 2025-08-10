@@ -207,7 +207,7 @@ func downloadRegionAssets(
           var data: Data? = nil
           switch res.status {
           case .notFound:
-            break
+            data = nil
           case .ok:
             if let body = res.body, body.readableBytes > 0 {
               data = Data(buffer: body)
@@ -279,7 +279,7 @@ func downloadRegionAssets(
           )
           downloadedResources += 1
         }
-      case .failure(let error):
+      case .failure(_):
         switch result.request {
         case .tile:
           failedTiles += 1
@@ -311,6 +311,7 @@ func downloadRegionAssets(
 
 func downloadFile(with app: Application, url: URI) async throws -> ClientResponse {
   let client = app.client
+  app.logger.info("Downloading \(url)")
   return try await client.get(url)
 }
 

@@ -429,7 +429,18 @@ func getStyleURLForRequest() async throws {
 
 @Test("Download tile that has no data")
 func downloadNoDataTile() async throws {
-  let urlTemplate = "mapbox://tiles/mapbox.mapbox-streets-v8/{z}/{x}/{y}.vector.pbf"
-  let tile = CandidateTile(x: 8, y: 15, z: 4, urlTemplate: urlTemplate)
-  
+  try await withApp { app in
+    let urlTemplate = "mapbox://tiles/mapbox.mapbox-streets-v8/{z}/{x}/{y}.vector.pbf"
+    let tile = CandidateTile(x: 8, y: 15, z: 4, urlTemplate: urlTemplate)
+    guard let mapboxToken = try app.config.mapboxAPIToken else {
+      throw RuntimeError.invalidArgument("Mapbox API token not set in config")
+    }
+    
+    let uri = getDownloadURL(tile: tile, params: [
+      "access_token": mapboxToken,
+    ])
+    let res = try await downloadFile(with: app, url: uri)
+    
+    #expect(res.status == .notFound, "The tile should not be found")
+  }
 }
