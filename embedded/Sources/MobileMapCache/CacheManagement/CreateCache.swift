@@ -61,6 +61,7 @@ enum RuntimeError: Error {
   case invalidArgument(String)
   case databaseError(String)
   case downloadFailed(String)
+  case configurationError(String)
 }
 
 func getCacheRegion(from definition: CacheRegionDefinition) async throws {
@@ -148,29 +149,40 @@ struct CacheRegionProgress: Content {
 
 func downloadRegionAssets(
   with app: Application, using definition: CacheRegionDefinition, regionId: Int,
-  onProgress: @escaping (CacheRegionProgress) -> Void
-) async throws {
-  let client = app.client
+  onProgress: @escaping (CacheRegionProgress) -> Void = { _ in }
+) async throws -> CacheRegionProgress {
 
   // Get the assets to download
   let assets = try await getRegionAssets(with: app, using: definition)
+  guard let mapboxToken = try app.config.mapboxAPIToken else {
+    throw RuntimeError.configurationError("Mapbox API token is not configured")
+  }
+  
+  guard let db = app.db as? any SQLDatabase else {
+    throw RuntimeError.databaseError("Database is not an SQLDatabase")
+  }
 
-  await withTaskGroup(of: DownloadResult.self) { taskGroup in
+
+  return try await withThrowingTaskGroup(of: DownloadResult.self) { taskGroup in
     for resource in assets.resources.resourcesToDownload {
       let uri = URI(string: resource.urlTemplate)
 
       taskGroup.addTask {
         do {
-          let data = try await downloadFile(with: app, url: resource.urlTemplate)
-          guard let data else {
-            // Resource not found (404)
-            throw RuntimeError.downloadFailed("Resource not found at \(uri)")
+          let uri = getDownloadURL(resource, params: [
+            "access_token": mapboxToken,
+          ])
+          
+          let res = try await downloadFile(with: app, url: uri)
+          app.logger.info("Resource \(uri): \(res.status)")
+          
+          guard res.status == .ok,
+                let body = res.body,
+                body.readableBytes > 0
+          else {
+            throw RuntimeError.invalidArgument("Failed to download file from \(uri)")
           }
-          try await persistResourceToDatabase(
-            db: app.db, url: resource.urlTemplate, data: data,
-            compressed: false, kind: resource.kind, regionId: regionId
-          )
-
+          let data = Data(buffer: body)
           return DownloadResult(
             uri: uri, request: .resource(resource), result: .success(data)
           )
@@ -184,21 +196,26 @@ func downloadRegionAssets(
     }
 
     for tile in assets.tiles.tilesToDownload {
-      let tileURL = tile.urlTemplate
-        .replacingOccurrences(of: "{z}", with: "\(tile.z)")
-        .replacingOccurrences(of: "{x}", with: "\(tile.x)")
-        .replacingOccurrences(of: "{y}", with: "\(tile.y)")
-
-      let uri = URI(string: tileURL)
-
+      let uri = getDownloadURL(tile: tile, params: [
+        "access_token": mapboxToken,
+      ])
       taskGroup.addTask {
         do {
-          let data = try await downloadFile(with: app, url: tileURL)
-          try await persistTileToDatabase(
-            db: app.db, tile: TileCoord(tile.x, tile.y, tile.z), data: data,
-            compressed: false, regionId: regionId
-          )
-
+          let res = try await downloadFile(with: app, url: uri)
+          app.logger.info("Tile \(uri): \(res.status)")
+          
+          var data: Data? = nil
+          switch res.status {
+          case .notFound:
+            break
+          case .ok:
+            if let body = res.body, body.readableBytes > 0 {
+              data = Data(buffer: body)
+            }
+          default:
+            throw RuntimeError.invalidArgument("Unexpected status code \(res.status) for \(uri)")
+          }
+          
           return DownloadResult(
             uri: uri, request: .tile(tile), result: .success(data)
           )
@@ -233,14 +250,33 @@ func downloadRegionAssets(
     
     onProgress(initialProgress)
     
+    var lastVal = initialProgress
+    
     // Handle completed downloads
-    for await result in taskGroup {
+    for try await result in taskGroup {
       switch result.result {
-      case .success:
+      case .success(let data):
         switch result.request {
-        case .tile:
+        case .tile(let tile):
+          try await persistTile(
+            to: db,
+            tile: tile,
+            data: data,
+            compressed: false,
+            regionId: regionId,
+            pixelRatio: definition.pixelRatio
+          )
           downloadedTiles += 1
-        case .resource:
+        case .resource(let resource):
+          guard let data else {
+            throw RuntimeError.invalidArgument(
+              "Resource data for \(resource.urlTemplate) is nil"
+            )
+          }
+          try await persistResource(
+            to: db, url: resource.urlTemplate, data: data,
+            compressed: false, kind: resource.kind, regionId: regionId
+          )
           downloadedResources += 1
         }
       case .failure(let error):
@@ -262,28 +298,20 @@ func downloadRegionAssets(
         tilesFailed: failedTiles
       )
       
+      lastVal = val
+      
       onProgress(val)
       
     }
+    
+    return lastVal
+    
   }
-
-
-
 }
 
-func downloadFile(with app: Application, url: String) async throws -> Data? {
+func downloadFile(with app: Application, url: URI) async throws -> ClientResponse {
   let client = app.client
-  let response = try await client.get(URI(string: url))
-
-  if response.status == .notFound {
-    // If 404 and allow404 is true, return nil
-    return nil
-  }
-
-  guard response.status == .ok, let body = response.body else {
-    throw RuntimeError.invalidArgument("Failed to download file from \(url)")
-  }
-  return Data(buffer: body)
+  return try await client.get(url)
 }
 
 func getRegionAssets(
@@ -403,7 +431,8 @@ func findResourceInDatabase(
   let sql: SQLQueryString = """
     SELECT length(data) as size
     FROM resources
-    WHERE url = \(bind: url) AND kind = \(bind: kind.rawValue)
+    WHERE url = \(bind: url)
+      AND kind = \(bind: kind.rawValue)
     LIMIT 1
     """
 
@@ -415,52 +444,6 @@ func findResourceInDatabase(
     return row
   }
   return nil
-}
-
-func downloadTileCache(with app: Application, using definition: CacheRegionDefinition) async throws
-{
-  // Validate the definition
-  guard definition.minZoom >= 0 else {
-    throw RuntimeError.invalidArgument("Minimum zoom level must be greater than or equal to 0")
-  }
-
-  guard definition.maxZoom >= definition.minZoom else {
-    throw RuntimeError.invalidArgument(
-      "Maximum zoom level must be greater than or equal to minimum zoom level")
-  }
-
-  let client = app.client
-
-  let spec = try await getTilesToDownload(with: app, using: definition)
-
-  await withTaskGroup(of: Void.self) { taskGroup in
-    for tile in spec.tilesToDownload {
-      // Replace the placeholders in the URL with the tile coordinates
-      let tileURL = tile.urlTemplate
-        .replacingOccurrences(of: "{z}", with: "\(tile.z)")
-        .replacingOccurrences(of: "{x}", with: "\(tile.x)")
-        .replacingOccurrences(of: "{y}", with: "\(tile.y)")
-
-      // Add a task to download the tile
-
-      taskGroup.addTask {
-        // Download the tile
-        do {
-          let response = try await client.get(URI(string: tileURL))
-          guard response.status == .ok else {
-            print("Failed to download tile at \(tileURL): \(response.status)")
-            return
-          }
-
-          let data = response.body?.readableBytesView
-          // Process the tile data (e.g., save to disk or database)
-          print("Downloaded tile at \(tileURL)")
-        } catch {
-          print("Error downloading tile at \(tileURL): \(error)")
-        }
-      }
-    }
-  }
 }
 
 func getJSONForStyle(
@@ -571,75 +554,89 @@ func inferTileURLTemplate(from tileJSONURL: String, sourceType: SourceType) thro
   }
 }
 
-func persistTileToDatabase(
-  db: any Database, tile: TileCoord, data: Data?, compressed: Bool, regionId: Int
+func persistTile(
+  to db: any SQLDatabase, tile: CandidateTile, data: Data?, compressed: Bool, regionId: Int, pixelRatio: Int = 1
 ) async throws {
-  let sql = """
-    WITH inserted_tile AS (
-      INSERT INTO tiles (x, y, z, data, compressed)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (x, y, z) DO NOTHING
-      RETURNING x, y, z
-    )
-    INSERT INTO region_tiles (region_id, x, y, z)
-    SELECT $6, x, y, z
-    FROM inserted_tile
-    ON CONFLICT (region_id, x, y, z) DO NOTHING
-    """
-
   // Cast to SQLDatabase
-  guard let db = db as? any SQLiteDatabase else {
-    throw RuntimeError.invalidArgument("Database must be an SQLDatabase")
+  
+  // Vector tiles get a pixel ratio of 1
+  var ratio = 1
+  if tile.urlTemplate.contains("{ratio}") {
+    // If the tile URL template contains a pixel ratio, we can use that
+    ratio = pixelRatio
   }
   
-  let _data: SQLiteData
+  var data1: ByteBuffer? = nil
   if let data {
-    _data = .blob(ByteBuffer(data: data))
-  } else {
-    _data = .null
+    // Convert Data to ByteBuffer
+    data1 = ByteBuffer(data: data)
   }
-
-  let params: [SQLiteData] = [
-    .integer(tile.x),
-    .integer(tile.y),
-    .integer(tile.z),
-    _data,
-    .integer(compressed ? 1 : 0),
-    .integer(regionId),
-  ]
-
-  _ = try await db.query(sql, params)
+  
+  //TODO: add unique constraints
+  
+  
+  let tileInsert: SQLQueryString = """
+    INSERT INTO tiles (x, y, z, url_template, pixel_ratio, data, compressed, accessed)
+    VALUES (
+      \(bind: tile.x),
+      \(bind: tile.y),
+      \(bind: tile.z),
+      \(bind: tile.urlTemplate),
+      \(bind: ratio),
+      \(bind: data1),
+      \(bind: compressed ? 1 : 0),
+      \(bind: Date().timeIntervalSince1970)
+    )
+    RETURNING id
+  """
+  
+  guard let id = try await db.raw(tileInsert)
+    .first(decodingColumn: "id", as: Int.self)
+          else {
+    throw RuntimeError.databaseError("Failed to insert or update tile")
+  }
+  
+  let regionTileInsert: SQLQueryString = """
+    INSERT INTO region_tiles (region_id, tile_id)
+    VALUES (\(bind: regionId), \(bind: id))
+    ON CONFLICT (region_id, tile_id) DO NOTHING
+  """
+  
+  // Now insert into region_tiles
+  _ = try await db.raw(regionTileInsert).run()
 }
 
-func persistResourceToDatabase(
-  db: any Database, url: String, data: Data, compressed: Bool, kind: ResourceKind, regionId: Int
+func persistResource(
+  to db: any SQLDatabase, url: String, data: Data, compressed: Bool, kind: ResourceKind, regionId: Int
 ) async throws {
-  let sql = """
-    WITH inserted_resource AS (
-      INSERT INTO resources (url, data, compressed, kind)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (url) DO NOTHING
-      RETURNING url
+  let data1 = ByteBuffer(data: data)
+  
+  let resourceInsert: SQLQueryString = """
+    INSERT INTO resources (url, data, compressed, kind, accessed)
+    VALUES (
+      \(bind: url),
+      \(bind: data1),
+      \(bind: compressed ? 1 : 0),
+      \(bind: kind.rawValue),
+      \(bind: Date().timeIntervalSince1970)
     )
-    INSERT INTO region_resources (region_id, url)
-    SELECT $5, url
-    FROM inserted_resource
-    ON CONFLICT (region_id, url) DO NOTHING
-    """
-
-  guard let db = db as? any SQLiteDatabase else {
-    throw RuntimeError.invalidArgument("Database must be an SQLDatabase")
+    RETURNING id
+  """
+  
+  guard let id = try await db.raw(resourceInsert)
+    .first(decodingColumn: "id", as: Int.self)
+          else {
+    throw RuntimeError.databaseError("Failed to insert or update resource")
   }
+  
+  // Now insert into region_resources
+  let regionResourceInsert: SQLQueryString = """
+    INSERT INTO region_resources (region_id, resource_id)
+    VALUES (\(bind: regionId), \(bind: id))
+    ON CONFLICT (region_id, resource_id) DO NOTHING
+  """
 
-  let params: [SQLiteData] = [
-    .text(url),
-    .blob(ByteBuffer(data: data)),
-    .integer(compressed ? 1 : 0),
-    .integer(kind.rawValue),
-    .integer(regionId),
-  ]
-
-  _ = try await db.query(sql, params)
+  _ = try await db.raw(regionResourceInsert).run()
 }
 
 func getIntersectingTiles(for geom: Geometry, minZoom: Int, maxZoom: Int) throws -> [TileCoord] {

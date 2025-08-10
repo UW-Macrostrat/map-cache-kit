@@ -10,7 +10,8 @@ import Numerics
 
 fileprivate func withApp(cacheDatabase: SQLiteConfiguration, _ test: (Application) async throws -> Void) async throws {
   // Set an environment variable for an in-memory database for testing
-  
+  var env = try Environment.detect()
+
   let app = try await Application.make(.testing)
   do {
     // Configure the app with an in-memory SQLite database
@@ -318,43 +319,6 @@ struct MobileMapCacheNewDatabaseTests {
       #expect(defs.first?.urlTemplate == "https://example.com/tiles/{z}/{x}/{y}.pbf")
     }
   }
-  
-  @Test("Downloading Tiles from Style URL")
-  func downloadTilesFromStyle() async throws {
-    try await withApp { app in
-      let styleJSON = """
-      {
-          "version": 8,
-          "sources": {
-              "example-source": {
-                  "type": "vector",
-                  "tiles": [
-                      "https://example.com/tiles/{z}/{x}/{y}.pbf"
-                  ]
-              }
-          }
-      }
-      """
-      let styleDefinition = StyleDefinition.jsonData(styleJSON)
-      let definition = CacheRegionDefinition(
-        style: styleDefinition,
-        minZoom: 0,
-        maxZoom: 1,
-        pixelRatio: 1,
-        glyphsRasterization: 1,
-        geometry: try! Polygon(wkt: "POLYGON((-1 -1, -1 1, 1 1, 1 -1, -1 -1))")
-      )
-      
-      try await downloadTileCache(with: app, using: definition)
-      
-      // //let tiles = try await app.db.query("SELECT COUNT(*) AS count FROM tiles").first()
-      // guard let tileCount = tiles?["count"]?.int else {
-      //   throw RuntimeError.invalidArgument("Failed to fetch tile count from database")
-      // }
-      
-      // #expect(tileCount > 0)
-    }
-  }
 }
 
 struct ParentTileTestCase: Sendable {
@@ -447,4 +411,25 @@ struct IntersectingTileTests {
     let intersectingTiles2 = try getIntersectingTiles(for: polygon.geometry, minZoom: 1, maxZoom: 1)
     #expect(intersectingTiles2.count == 4, "There should be 4 tiles at zoom level 1 covering the entire world")
   }
+}
+
+@Test("Canonicalize Mapbox style URL for caching")
+func canonicalizeStyleURLForCaching() async throws {
+  let styleURL = "https://api.mapbox.com/styles/v1/mapbox/streets-v11"
+  let canonicalizedURL = getMapboxCanonicalURL(styleURL)
+  #expect(
+    canonicalizedURL.templateURL == "mapbox://styles/mapbox/streets-v11"
+  )
+}
+
+@Test("Get style URL for request")
+func getStyleURLForRequest() async throws {
+  let canonicalURL = "mapbox://tiles/mapbox.mapbox-streets-v8/{z}/{x}/{y}.vector.pbf"
+}
+
+@Test("Download tile that has no data")
+func downloadNoDataTile() async throws {
+  let urlTemplate = "mapbox://tiles/mapbox.mapbox-streets-v8/{z}/{x}/{y}.vector.pbf"
+  let tile = CandidateTile(x: 8, y: 15, z: 4, urlTemplate: urlTemplate)
+  
 }

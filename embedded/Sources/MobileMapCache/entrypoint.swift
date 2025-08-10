@@ -24,13 +24,8 @@ enum Entrypoint {
         throw RuntimeError.databaseError("Cache database path not set")
       }
       
-      let apiToken = Environment.get("MAPBOX_API_TOKEN")
-
       try await configure(app, cacheDatabase: .file(cacheDatabasePath))
-     
-      let cfg = AppConfig(mapboxAPIToken: apiToken)
-      await app.storage.setWithAsyncShutdown(ConfigurationKey.self, to: cfg)
-      
+
       try await app.execute()
     } catch {
       app.logger.report(error: error)

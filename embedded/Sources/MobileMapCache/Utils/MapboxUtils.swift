@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Vapor
 
 func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
   var matchURL = url
@@ -19,6 +20,9 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
     if matchURL.contains("/sprite") {
       matchURL = matchURL.replacingOccurrences(of: "/sprite", with: "")
       matchURL = "mapbox://sprites/" + matchURL
+    } else {
+      // This is a style request
+      matchURL = "mapbox://styles/" + matchURL
     }
     return CacheResourceInfo(inputURL: url, templateURL: matchURL, cacheType: .resource, thirdParty: false)
   }
@@ -95,6 +99,75 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
     thirdParty: thirdParty
   )
 }
+
+func getDownloadURL(tile: CandidateTile, params: [String: String?] = [:]) -> URI {
+  var tileURL = tile.urlTemplate
+    .replacingOccurrences(of: "{z}", with: "\(tile.z)")
+    .replacingOccurrences(of: "{x}", with: "\(tile.x)")
+    .replacingOccurrences(of: "{y}", with: "\(tile.y)")
+    .replacingOccurrences(of: "{ratio}", with: "@2x")
+    .replacingOccurrences(of: "mapbox://tiles", with: "https://api.mapbox.com/v4")
+  
+  // Replace webp
+  if tileURL.hasSuffix(".webp") {
+    tileURL = tileURL.replacingOccurrences(of: ".webp", with: ".png")
+  }
+  
+  var uri = URI(string: tileURL)
+  uri.query = buildParams(params)
+  return uri
+}
+
+func addSpriteSuffix(url: String) -> String {
+  for ratio in ["@2x", ""] {
+    for ext in [".png", ".json"] {
+      let suffix = ratio + ext
+      if url.hasSuffix(suffix) {
+        return url.replacingOccurrences(of: suffix, with: "/sprite\(suffix)")
+      }
+    }
+  }
+  return url
+}
+
+func getDownloadURL(_ resource: RequestedResource, params: [String: String?] = [:]) -> URI {
+  var resourceURL = resource.urlTemplate
+  if resourceURL.hasPrefix("mapbox://fonts/") {
+    resourceURL = resourceURL.replacingOccurrences(of: "mapbox://fonts/", with: "https://api.mapbox.com/fonts/v1/")
+  } else if resourceURL.hasPrefix("mapbox://sprites/") {
+    resourceURL = resourceURL.replacingOccurrences(of: "mapbox://sprites/", with: "https://api.mapbox.com/styles/v1/")
+    resourceURL = addSpriteSuffix(url: resourceURL)
+  } else if resourceURL.hasPrefix("mapbox://styles/") {
+    resourceURL = resourceURL.replacingOccurrences(of: "mapbox://styles/", with: "https://api.mapbox.com/styles/v1/")
+  } else if resourceURL.hasPrefix("mapbox://tiles/") {
+    resourceURL = resourceURL.replacingOccurrences(of: "mapbox://tiles/", with: "https://api.mapbox.com/v4/")
+  } else if resourceURL.hasPrefix("mapbox://") {
+    // A tileset
+    resourceURL = resourceURL.replacingOccurrences(of: "mapbox://", with: "https://api.mapbox.com/v4/")
+    resourceURL += ".json"
+  }
+  
+
+  var uri = URI(string: resourceURL)
+  // Encode URL parameters if provided
+  uri.query = buildParams(params)
+  return uri
+}
+
+func buildParams(_ params: [String: String?]) -> String? {
+  guard !params.isEmpty else { return nil }
+  var queryItems: [String] = []
+  for (key, value) in params {
+    let v1 = value?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+    if let val = v1 {
+      queryItems.append("\(key)=\(val)")
+    } else {
+      queryItems.append("\(key)")
+    }
+  }
+  return queryItems.joined(separator: "&")
+}
+
 
 let imageExtensions = Set(["webp", "png", "jpg", "jpeg", "mvt", "pbf"])
 

@@ -102,14 +102,8 @@ struct CacheRegionsController: RouteCollection {
     guard let db = req.db as? any SQLDatabase else {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
     }
-
-    let region = try await db.raw(
-      "INSERT INTO regions (definition, description) VALUES (\(bind: regionCandidate.definition), \(bind: regionCandidate.description)) RETURNING id, definition, description"
-    ).first(decoding: MBXCacheRegion.self)
     
-    guard let region, let id = region.id else {
-      throw Abort(.internalServerError, reason: "Failed to create region")
-    }
+    let region = try await createRegion(db, region: regionCandidate)
 
     // Start the download process (will run outside of the request lifecycle)
     Task.detached {
@@ -179,6 +173,18 @@ struct CacheRegionsController: RouteCollection {
     try await deleteUnreferencedAssets(db: db, log: req.logger)
     return .noContent
   }  
+}
+
+func createRegion(_ db: any SQLDatabase, region: MBXCacheRegion) async throws -> MBXCacheRegion {
+  let region = try await db.raw(
+    "INSERT INTO regions (definition, description) VALUES (\(bind: region.definition), \(bind: region.description)) RETURNING id, definition, description"
+  ).first(decoding: MBXCacheRegion.self)
+  
+  guard let region else {
+    throw RuntimeError.databaseError("Failed to create region")
+  }
+  
+  return region
 }
 
 struct DeletedAsset: Content {
