@@ -17,6 +17,7 @@
     "@macrostrat/mapbox-utils": "^1.5.0",
     "@macrostrat/style-system": "^0.2.1",
     "@macrostrat/ui-components": "^4.2.0",
+    "@turf/bbox": "^7.2.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "use-query-string": "^2.4.1"

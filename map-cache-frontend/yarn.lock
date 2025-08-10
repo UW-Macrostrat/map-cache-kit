@@ -1144,7 +1144,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@turf/bbox@npm:^7.1.0":
+"@turf/bbox@npm:^7.1.0, @turf/bbox@npm:^7.2.0":
   version: 7.2.0
   resolution: "@turf/bbox@npm:7.2.0"
   dependencies:
@@ -3050,6 +3050,7 @@ __metadata:
     "@macrostrat/mapbox-utils": "npm:^1.5.0"
     "@macrostrat/style-system": "npm:^0.2.1"
     "@macrostrat/ui-components": "npm:^4.2.0"
+    "@turf/bbox": "npm:^7.2.0"
     "@types/react": "npm:^19.1.2"
     "@types/react-dom": "npm:^19.1.2"
     "@vitejs/plugin-react": "npm:^4.4.1"

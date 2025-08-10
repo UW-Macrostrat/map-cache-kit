@@ -1,15 +1,25 @@
 import hyper from "@macrostrat/hyper";
-import { DevMapPage, useBasicMapStyle } from "@macrostrat/map-interface";
+import {
+  DetailsPanel,
+  DevMapPage,
+  FloatingNavbar,
+  MapAreaContainer,
+  MapLoadingButton,
+  MapView,
+  PanelCard,
+  useBasicMapStyle,
+} from "@macrostrat/map-interface";
 import styles from "./App.module.sass";
 import "@macrostrat/style-system/dist/style-system.css";
 import "@blueprintjs/core/lib/css/blueprint.css";
-import { SegmentedControl, FormGroup } from "@blueprintjs/core";
-import { useRef } from "react";
+import { SegmentedControl, FormGroup, Button } from "@blueprintjs/core";
+import { useRef, useState } from "react";
 import { useQueryState, useRequestTransformer } from "./utils";
 import { FlexRow, useAPIResult } from "@macrostrat/ui-components";
-import { useMapStyleOperator } from "@macrostrat/mapbox-react";
-import { setGeoJSON } from "@macrostrat/mapbox-utils";
+import { useMapRef, useMapStyleOperator } from "@macrostrat/mapbox-react";
+import { setGeoJSON, setMapPosition } from "@macrostrat/mapbox-utils";
 import type { Polygon } from "geojson";
+import { bbox } from "@turf/bbox";
 
 const h = hyper.styled(styles);
 
@@ -45,14 +55,68 @@ export default function App() {
 
   const regions: CacheRegionData[] = useAPIResult(cacheURL + "/regions");
 
+  const [bounds, setBounds] = useState(null);
+
+  const detailPanel = h(
+    DetailsPanel,
+    {
+      title: "Cache regions",
+    },
+    h("div.cache-areas-inner", [
+      h(NewCacheButton),
+      h(CacheList, { regions, setBounds }),
+      h(
+        "p",
+        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
+      ),
+    ]),
+  );
+
+  const overlayStyles = [
+    {
+      sources: {
+        cacheRegions: {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: [],
+          },
+        },
+      },
+      layers: [
+        {
+          id: "cacheRegions-fill",
+          type: "fill",
+          source: "cacheRegions",
+          paint: {
+            "fill-color": "#f08",
+            "fill-opacity": 0.1,
+          },
+        },
+        {
+          id: "cacheRegions-outline",
+          type: "line",
+          source: "cacheRegions",
+          paint: {
+            "line-color": "#f08",
+            "line-width": 2,
+          },
+        },
+      ],
+    },
+  ];
+
   return h("div.app", [
     h(
-      DevMapPage,
+      MapPage,
       {
         key: refreshCounter.current,
         mapboxToken,
         style,
-        title: "Map cache utils",
+        bounds,
+        title: "Map caches",
+        detailPanel,
+        overlayStyles,
         controls: h("div.cache-controls", [
           h(FormGroup, { label: "Cache mode" }, [
             h(SegmentedControl, {
@@ -84,17 +148,6 @@ export default function App() {
         transformRequest: useRequestTransformer(cacheURL, cacheMode),
       },
       h(CacheRegionsLayer, { regions }),
-    ),
-    h(
-      "div.cache-areas",
-      h("div.cache-areas-inner", [
-        h("h2", "Cache areas"),
-        h(CacheList, { regions }),
-        h(
-          "p",
-          "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-        ),
-      ]),
     ),
   ]);
 }
@@ -141,6 +194,8 @@ function CacheRegionsLayer({ regions }) {
 }
 
 function CacheList({ regions }) {
+  const mapRef = useMapRef();
+
   if (regions == null) return null;
 
   if (regions.length === 0) {
@@ -148,12 +203,99 @@ function CacheList({ regions }) {
   }
   return h(
     "div.cache-list",
-    regions.map((region) =>
-      h("div.cache-item", { key: region.id }, [
-        h("h3", region.description.name),
-        h("p", `Created: ${region.description.created}`),
-        h("p", `Updated: ${region.description.updated}`),
-      ]),
+    regions.map((region) => {
+      return h(
+        "div.cache-item",
+        {
+          key: region.id,
+          onClick() {
+            console.log(region.definition.geometry);
+            const bounds = bbox(region.definition.geometry);
+
+            mapRef.current?.fitBounds(bounds, {
+              duration: 500,
+            });
+          },
+        },
+        [
+          h("h3", region.description.name),
+          h("p", `Created: ${region.description.created}`),
+          h("p", `Updated: ${region.description.updated}`),
+        ],
+      );
+    }),
+  );
+}
+
+function NewCacheButton() {
+  return h("div.new-cache", [
+    h(
+      Button,
+      {
+        onClick: () => {
+          alert("Feature not implemented yet.");
+        },
+      },
+      "Create new cache",
+    ),
+  ]);
+}
+
+export function MapPage({
+  title = "Map inspector",
+  headerElement = null,
+  transformRequest = null,
+  mapPosition = null,
+  mapboxToken = null,
+  controls = null,
+  children = null,
+  style,
+  bounds = null,
+  fitViewport = true,
+  detailPanel = null,
+  ...rest
+}) {
+  /* We apply a custom style to the panel container when we are interacting
+    with the search bar, so that we can block map interactions until search
+    bar focus is lost.
+    We also apply a custom style when the infodrawer is open so we can hide
+    the search bar on mobile platforms
+  */
+
+  const [isOpen, setOpen] = useState(false);
+
+  return h(
+    MapAreaContainer,
+    {
+      navbar: h(FloatingNavbar, {
+        rightElement: h(MapLoadingButton, {
+          large: true,
+          active: isOpen,
+          onClick: () => setOpen(!isOpen),
+          style: {
+            marginRight: "-5px",
+          },
+        }),
+        headerElement,
+        title,
+      }),
+      contextPanel: h(PanelCard, [controls]),
+      detailPanel,
+      contextPanelOpen: isOpen,
+      fitViewport,
+    },
+    h(
+      MapView,
+      {
+        style,
+        transformRequest,
+        mapPosition,
+        projection: { name: "globe" },
+        mapboxToken,
+        bounds,
+        ...rest,
+      },
+      children,
     ),
   );
 }
