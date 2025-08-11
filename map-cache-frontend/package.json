@@ -20,6 +20,7 @@
     "@turf/bbox": "^7.2.0",
     "@turf/bbox-polygon": "^7.2.0",
     "chroma-js": "^3.1.2",
+    "immutability-helper": "^3.1.1",
     "jotai": "^2.13.1",
     "jotai-location": "^0.6.1",
     "mapbox-gl": "^3.14.0",

@@ -3180,6 +3180,7 @@ __metadata:
     eslint-plugin-react-hooks: "npm:^5.2.0"
     eslint-plugin-react-refresh: "npm:^0.4.19"
     globals: "npm:^16.0.0"
+    immutability-helper: "npm:^3.1.1"
     jotai: "npm:^2.13.1"
     jotai-location: "npm:^0.6.1"
     mapbox-gl: "npm:^3.14.0"
