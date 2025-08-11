@@ -9,6 +9,7 @@ import Fluent
 import FluentSQL
 import Vapor
 import GEOSwift
+import SwiftTileMatrix
 
 // definition: {"style_url":"http://localhost:50051/dynamic-styles/rockd-cache.v1.0.satellite.json","min_zoom":0.0,"max_zoom":0.0,"pixel_ratio":2.0,"glyphs_rasterization":1,"geometry":{"type":"Polygon","coordinates":[[[-180.0,-90.0],[180.0,-90.0],[180.0,90.0],[-180.0,90.0],[-180.0,-90.0]]]}}
 // description: {"layers":["satellite"],"styleVersion":"1.0","updated":"2025-01-10T05:37:00.000Z","name":"rockd-cache.v1.0.satellite","created":"2025-01-10T05:37:00.000Z"}
@@ -50,6 +51,30 @@ struct MBXCacheRegion: Content {
   let definition: MBXCacheRegionDefinition
   let description: MBXCacheRegionDescription
   
+  var isGlobal: Bool {
+    let tileCoord = TileCoord(0, 0, 0)
+    do {
+      let geom = try self.asRegionDefinition().geometry
+      let area = try geom.area()
+      
+      let tmsEnvelope = tileCoord.envelope
+      let tmsEnvelope4326 = try MultiPoint(
+        points: [tmsEnvelope.minXMinY, tmsEnvelope.maxXMaxY]
+          .map(webMercatorToEpsg4236)
+      ).envelope()
+      let tmsArea = try tmsEnvelope4326.area()
+      
+      print(self.description.name, area, tmsArea)
+      
+      if area > tmsArea * 0.999 && area < tmsArea * 1.25 {
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
+  
   func asRegionDefinition() throws -> CacheRegionDefinition {
     return CacheRegionDefinition(
       style: .styleURL(definition.styleURL),
@@ -60,6 +85,40 @@ struct MBXCacheRegion: Content {
       geometry: Polygon(exterior: try Polygon.LinearRing(points: definition.geometry.coordinates[0].map { Point(x: $0[0], y: $0[1]) }))
     )
   }
+  
+  enum CodingKeys: String, CodingKey {
+    case id
+    case definition
+    case description
+    case isGlobal
+  }
+  
+  init(
+    id: Int? = nil,
+    definition: MBXCacheRegionDefinition,
+    description: MBXCacheRegionDescription
+  ) {
+    self.id = id
+    self.definition = definition
+    self.description = description
+  }
+  
+  // Allow encoding of isGlobal as a computed property, but ignore it if sent
+  func encode(to encoder: any Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encodeIfPresent(id, forKey: .id)
+    try container.encode(definition, forKey: .definition)
+    try container.encode(description, forKey: .description)
+    try container.encode(isGlobal, forKey: .isGlobal)
+  }
+  
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.id = try container.decodeIfPresent(Int.self, forKey: .id)
+    self.definition = try container.decode(MBXCacheRegionDefinition.self, forKey: .definition)
+    self.description = try container.decode(MBXCacheRegionDescription.self, forKey: .description)
+  }
+  
 }
 
 struct CacheRegionsController: RouteCollection {

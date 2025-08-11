@@ -1,7 +1,6 @@
 import hyper from "@macrostrat/hyper";
 import {
   DetailsPanel,
-  DevMapPage,
   FloatingNavbar,
   MapAreaContainer,
   MapLoadingButton,
@@ -12,12 +11,12 @@ import {
 import styles from "./App.module.sass";
 import "@macrostrat/style-system/dist/style-system.css";
 import "@blueprintjs/core/lib/css/blueprint.css";
-import { SegmentedControl, FormGroup, Button } from "@blueprintjs/core";
+import { SegmentedControl, FormGroup, Button, Tag } from "@blueprintjs/core";
 import { useRef, useState } from "react";
 import { useQueryState, useRequestTransformer } from "./utils";
-import { FlexRow, useAPIResult } from "@macrostrat/ui-components";
+import { useAPIResult } from "@macrostrat/ui-components";
 import { useMapRef, useMapStyleOperator } from "@macrostrat/mapbox-react";
-import { setGeoJSON, setMapPosition } from "@macrostrat/mapbox-utils";
+import { setGeoJSON } from "@macrostrat/mapbox-utils";
 import type { Polygon } from "geojson";
 import { bbox } from "@turf/bbox";
 
@@ -65,10 +64,6 @@ export default function App() {
     h("div.cache-areas-inner", [
       h(NewCacheButton),
       h(CacheList, { regions, setBounds }),
-      h(
-        "p",
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-      ),
     ]),
   );
 
@@ -154,6 +149,7 @@ export default function App() {
 
 interface CacheRegionData {
   id: string;
+  isGlobal: boolean | null;
   description: {
     name: string;
     created: string;
@@ -176,15 +172,17 @@ function CacheRegionsLayer({ regions }) {
     (map) => {
       setGeoJSON(map, "cacheRegions", {
         type: "FeatureCollection",
-        features: regions.map((region) => ({
-          type: "Feature",
-          id: region.id,
-          properties: {
-            name: region.name,
-            description: region.description,
-          },
-          geometry: region.definition.geometry,
-        })),
+        features: regions
+          .filter((d) => !d.isGlobal)
+          .map((region) => ({
+            type: "Feature",
+            id: region.id,
+            properties: {
+              name: region.name,
+              description: region.description,
+            },
+            geometry: region.definition.geometry,
+          })),
       });
     },
     [regions],
@@ -221,6 +219,7 @@ function CacheList({ regions }) {
           h("h3", region.description.name),
           h("p", `Created: ${region.description.created}`),
           h("p", `Updated: ${region.description.updated}`),
+          h("p", [h.if(region.isGlobal)(Tag, "global")]),
         ],
       );
     }),

@@ -174,6 +174,8 @@ func downloadNewTilesForCacheRegion() async throws {
       )
     )
     
+    #expect(legacyRegion.isGlobal, "Legacy region should cover the entire world")
+    
     
     let region = try await createRegion(db, region: legacyRegion)
     guard let regionID = region.id else {
