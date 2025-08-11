@@ -145,6 +145,11 @@ struct MBXCacheRegion: Content {
   
 }
 
+struct CacheRegionsInfo: Content {
+  let regions: [MBXCacheRegion]
+  let assets: CachedAssetsInfo
+}
+
 struct CacheRegionsController: RouteCollection {
 
   let connectionManager = WebSocketConnectionManager()
@@ -155,11 +160,11 @@ struct CacheRegionsController: RouteCollection {
     regions.get(use: self.index)
     regions.post(use: self.create)
     regions.delete(":id", use: self.deleteCacheRegion)
-    regions.webSocket("socket", onUpgrade: self.webSocket)
+    regions.webSocket("events", onUpgrade: self.webSocket)
   }
   
   @Sendable
-  func index(req: Request) async throws -> [MBXCacheRegion] {
+  func index(req: Request) async throws -> CacheRegionsInfo {
     // Get a list of regions
     let sql: SQLQueryString = """
       WITH resources_count AS (
@@ -203,8 +208,10 @@ struct CacheRegionsController: RouteCollection {
     // Description is a JSON string
     let regions = try await db.raw(sql)
       .all(decoding: MBXCacheRegion.self)
+    
+    let total = try await getTotalSize(db: db)
 
-    return regions
+    return CacheRegionsInfo(regions: regions, assets: total)
   }
 
   // Route to create a cache region
@@ -352,4 +359,33 @@ actor WebSocketConnectionManager {
       try await ws.send(message)
     }
   }
+}
+
+
+func getTotalSize(db: any SQLDatabase) async throws -> CachedAssetsInfo {
+  let sql: SQLQueryString = """
+      WITH resources_count AS (
+        SELECT
+          sum(length(data)) resource_size,
+          count(data) resource_count
+        FROM resources
+      ), tiles_count AS (
+        SELECT
+          sum(length(data)) tile_size,
+          count(data) tile_count
+        FROM tiles
+      )
+      SELECT
+        rc.resource_size,
+        rc.resource_count,
+        tc.tile_size,
+        tc.tile_count
+      FROM resources_count rc, tiles_count tc;
+    """
+  
+  guard let res = try await db.raw(sql).first(decoding: CachedAssetsInfo.self) else {
+    throw RuntimeError.databaseError("Could not find cache assets info")
+  }
+  return res
+
 }

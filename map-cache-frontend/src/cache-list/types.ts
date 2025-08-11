@@ -29,10 +29,10 @@ export interface RockdCacheMetadata {
 }
 
 export interface ResourceInfo {
-  tileCount: number;
-  tileSize: number;
-  resourceCount: number;
-  resourceSize: number;
+  tile_count: number;
+  tile_size: number;
+  resource_count: number;
+  resource_size: number;
 }
 
 /* This struct comes from Mapbox's internal config */
@@ -49,23 +49,18 @@ export interface OfflineRegionStatus {
 
 export interface MapCacheListing {
   id: number;
-  sizes?: ResourceInfo;
+  global: boolean;
   description: RockdCacheMetadata;
   definition: {
     geometry: GeoJSON.Geometry;
   };
+  assets?: ResourceInfo;
   offlineStatus?: OfflineRegionStatus;
-}
-
-export interface CacheSystemInfo {
-  caches: MapCacheListing[];
-  sizes: ResourceInfo;
-  totalSize: number;
 }
 
 export interface CacheRegionData {
   id: string;
-  isGlobal: boolean | null;
+  global: boolean | null;
   description: {
     name: string;
     created: string;
@@ -81,4 +76,9 @@ export interface CacheRegionData {
     max_zoom: number;
     geometry: Polygon;
   };
+}
+
+export interface CacheData {
+  regions: MapCacheListing[];
+  assets: ResourceInfo;
 }

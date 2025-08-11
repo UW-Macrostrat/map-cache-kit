@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { type CacheRegionData, MapCachePriority } from "./cache-list/types.ts";
+import { type CacheData, MapCachePriority } from "./cache-list/types.ts";
 import { atomWithHash } from "jotai-location";
 import { atom } from "jotai";
 import { atomWithRefresh } from "jotai/utils";
@@ -20,23 +20,24 @@ export const cacheModeAtom = atomWithHash<MapCachePriority>(
 
 export const cacheURLAtom = atom(import.meta.env.VITE_CACHE_URL);
 
-export const cacheRegionsAtom = atomWithRefresh(async (get) => {
+export const cacheDataAtom = atomWithRefresh(async (get) => {
   const cacheURL = get(cacheURLAtom);
   const res = await fetch(cacheURL + "/regions");
   if (!res.ok) {
     throw new Error(`Failed to fetch cache regions: ${res.statusText}`);
   }
   const data = await res.json();
-  return data as CacheRegionData[];
+  return data as CacheData;
 });
 
 export const cacheRegionsGeoJSONAtom = atom(async (get) => {
-  const cacheRegions = await get(cacheRegionsAtom);
+  const cacheData = await get(cacheDataAtom);
+  const regions = cacheData?.regions;
 
   return {
     type: "FeatureCollection",
-    features: cacheRegions
-      .filter((d) => !d.isGlobal)
+    features: regions
+      .filter((d) => !d.global)
       .map((region) => ({
         type: "Feature",
         id: region.id,

@@ -1,5 +1,9 @@
 import m from "@macrostrat/hyper";
-import type { MapCacheListing, OfflineRegionStatus } from "./types";
+import type {
+  MapCacheListing,
+  OfflineRegionStatus,
+  ResourceInfo,
+} from "./types";
 import { MapCachePriority } from "./types";
 import { CacheMap } from "./cache-map";
 import { useState, memo } from "react";
@@ -12,15 +16,18 @@ import {
   Spinner,
 } from "@blueprintjs/core";
 import "./map-caches.scss";
-import { cacheModeAtom, cacheRegionsAtom } from "../utils.ts";
+import { cacheModeAtom, cacheDataAtom } from "../utils.ts";
 import { useAtom } from "jotai";
 
-export function CachePanelView({ data, dispatch }) {
-  const [caches] = useAtom(cacheRegionsAtom);
-  if (caches == null) {
+export function CachePanelView({ dispatch }) {
+  const [data] = useAtom(cacheDataAtom);
+  if (data == null) {
     return m("div.cache-list-panel", m(Spinner));
   }
-  if (data == null) return null;
+
+  const caches = data.regions ?? [];
+
+  const totalSize = data.assets.tile_size + data.assets.resource_size;
 
   const hasGlobalCache = findGlobalCache(caches ?? []) != null;
 
@@ -35,7 +42,7 @@ export function CachePanelView({ data, dispatch }) {
       ]),
     ),
     m(CacheList, { caches, dispatch }),
-    m(CacheSystemControls, { dispatch, totalSize: data?.totalSize }),
+    m(CacheSystemControls, { dispatch, totalSize }),
   ]);
 }
 
@@ -219,7 +226,7 @@ function CacheStatus({ cache }) {
       data: cache.offlineStatus,
     }),
     m("p.flex-row", [
-      m(CacheSizes, { ...cache.sizes }),
+      m(CacheSizes, { ...cache.assets }),
       m("span.spacer"),
       m.if(!isDownloading)(CacheDateBlock, { cache }),
     ]),
@@ -277,25 +284,25 @@ function IconButton({ icon, onClick, color, children, ...rest }) {
 }
 
 function CacheSizes({
-  tileSize,
-  resourceSize,
-  tileCount,
-  expectedTileCount = null,
+  tile_size,
+  resource_size,
+  tile_count,
+  expected_tile_count = null,
   expanded = false,
-}) {
-  const totalSize = tileSize + resourceSize;
+}: ResourceInfo & { expected_tile_count?: number | null; expanded?: boolean }) {
+  const totalSize = tile_size + resource_size;
   return m("span.cache-sizes", [
     m(CacheSize, { size: totalSize }),
     m.if(expanded)([
       " (",
-      m(CacheSize, { size: tileSize }),
+      m(CacheSize, { size: tile_size }),
       " tiles and ",
-      m(CacheSize, { size: resourceSize }),
+      m(CacheSize, { size: resource_size }),
       " resources)",
     ]),
     ", ",
-    tileCount,
-    m.if(expectedTileCount != null)([" of ", expectedTileCount]),
+    tile_count,
+    m.if(expected_tile_count != null)([" of ", expected_tile_count]),
     " tiles",
   ]);
 }
