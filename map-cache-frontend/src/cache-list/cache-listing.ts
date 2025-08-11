@@ -1,16 +1,12 @@
 import m from "@macrostrat/hyper";
-import {
+import type {
   MapCacheListing,
   OfflineRegionStatus,
   MapCachePriority,
-} from "../models";
+} from "./types";
 import { CacheMap } from "./cache-map";
 import { useState, memo } from "react";
-import {
-  findGlobalCache,
-  isGlobalCache,
-  isStyleCache,
-} from "../map-cache.service";
+import { findGlobalCache, isGlobalCache, isStyleCache } from "./utils";
 
 export function CachePanelView({ data, dispatch, cacheMode }) {
   if (data == null) return null;

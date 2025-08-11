@@ -11,7 +11,7 @@ import {
 import styles from "./App.module.sass";
 import "@macrostrat/style-system/dist/style-system.css";
 import "@blueprintjs/core/lib/css/blueprint.css";
-import { SegmentedControl, FormGroup, Button, Tag } from "@blueprintjs/core";
+import { Button, FormGroup, SegmentedControl, Tag } from "@blueprintjs/core";
 import { useRef, useState } from "react";
 import { useQueryState, useRequestTransformer } from "./utils";
 import { useAPIResult } from "@macrostrat/ui-components";
@@ -19,6 +19,8 @@ import { useMapRef, useMapStyleOperator } from "@macrostrat/mapbox-react";
 import { setGeoJSON } from "@macrostrat/mapbox-utils";
 import type { Polygon } from "geojson";
 import { bbox } from "@turf/bbox";
+import { CachePanelView } from "./cache-list";
+import { MapCachePriority } from "./cache-list/types.ts";
 
 const h = hyper.styled(styles);
 
@@ -27,17 +29,17 @@ const cacheURL = import.meta.env.VITE_CACHE_URL;
 
 const satelliteStyle = "mapbox://styles/jczaplewski/cl51esfdm000e14mq51erype3";
 
-const cacheModeOptions = [
-  { label: "Cache", value: "cache" },
-  { label: "Fallback", value: "cache-then-network" },
-  { label: "Network", value: "network" },
+const cacheModeOptions: { label: string; value: MapCachePriority } = [
+  { label: "Cache", value: MapCachePriority.Cache },
+  { label: "Fallback", value: MapCachePriority.CacheThenNetwork },
+  { label: "Network", value: MapCachePriority.Network },
 ];
 
 const cacheModes = cacheModeOptions.map((option) => option.value);
 
 export default function App() {
   const [cacheMode, setCacheMode] = useQueryState("mode", {
-    defaultValue: "cache-then-network",
+    defaultValue: MapCachePriority.CacheThenNetwork,
     validValues: cacheModes,
   });
   const [basemap, setBasemap] = useQueryState<"basic" | "satellite">(
@@ -64,6 +66,11 @@ export default function App() {
     h("div.cache-areas-inner", [
       h(NewCacheButton),
       h(CacheList, { regions, setBounds }),
+      h(CachePanelView, {
+        data: regions,
+        dispatch: () => {},
+        cacheMode,
+      }),
     ]),
   );
 

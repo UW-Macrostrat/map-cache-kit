@@ -1,11 +1,12 @@
 import h from "@macrostrat/hyper";
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { Map } from "mapbox-gl";
-import { Settings } from "~/_models/settings";
-import { baseMapStyles } from "~/components/map/map-style";
+import { baseMapStyles } from "./map-style";
 import { mergeStyles } from "@macrostrat/mapbox-utils";
-import { boundsForPolygon } from "../map-cache.service";
-import { useElementSize } from "@mantine/hooks";
+import { boundsForPolygon } from "./utils";
+import { useElementSize } from "@macrostrat/ui-components";
+
+const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
 function useOnScreen(ref, rootMargin = "0px") {
   // State and setter for storing whether element is visible
@@ -19,7 +20,7 @@ function useOnScreen(ref, rootMargin = "0px") {
       },
       {
         rootMargin,
-      }
+      },
     );
     if (ref.current != null) {
       observer.observe(ref.current);
@@ -36,7 +37,7 @@ function useOnScreen(ref, rootMargin = "0px") {
 function setupMap(
   el: HTMLDivElement,
   mapRef: React.MutableRefObject<Map>,
-  data: GeoJSON.Polygon
+  data: GeoJSON.Polygon,
 ) {
   if (el == null || data == null) return;
 
@@ -46,7 +47,7 @@ function setupMap(
   let bounds = boundsForPolygon(data);
 
   const map = new Map({
-    accessToken: Settings.MAPBOXAPIKEY,
+    accessToken: mapboxToken,
     container: el,
     bounds,
     fitBoundsOptions: { padding: 20 },
@@ -99,13 +100,13 @@ const CacheMapContainer: any = forwardRef((props, ref) =>
         height: "130px",
       },
     }),
-  ])
+  ]),
 );
 
 function buildStaticMapURL(data: any, { width, height }) {
   const bounds = boundsForPolygon(data);
   let url = `https://api.mapbox.com/styles/v1/jczaplewski/cl3w3bdai001f14ob27ckmpxz/static/`;
-  url += `?access_token=${Settings.MAPBOXAPIKEY}&size=${width},${height}`;
+  url += `?access_token=${mapboxToken}&size=${width},${height}`;
   const feature = {
     geometry: data,
     type: "Feature",
@@ -128,7 +129,7 @@ export function StaticCacheMap(props: {
     {
       onClick: props.onClick,
     },
-    [h("img", { src })]
+    [h("img", { src })],
   );
 }
 

@@ -1,6 +1,6 @@
 import type { GeoJSON } from "geojson";
 
-enum MapCachePriority {
+export enum MapCachePriority {
   Cache = "cache",
   Network = "network",
   CacheThenNetwork = "cache-then-network",
@@ -47,7 +47,7 @@ export interface OfflineRegionStatus {
   requiredResourceCountIsPrecise: boolean;
 }
 
-interface MapCacheListing {
+export interface MapCacheListing {
   id: number;
   geometry: GeoJSON.Geometry;
   sizes?: ResourceInfo;
