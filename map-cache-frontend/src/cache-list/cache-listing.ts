@@ -19,6 +19,7 @@ import "./map-caches.scss";
 import { cacheModeAtom, cacheDataAtom } from "../utils.ts";
 import { useAtom } from "jotai";
 
+
 export function CachePanelView({ dispatch }) {
   const [data] = useAtom(cacheDataAtom);
   if (data == null) {
@@ -74,6 +75,17 @@ function CacheList({ caches, dispatch }: { caches: MapCacheListing[] }) {
     m("div.cache-list-spacer"),
   ]);
 }
+
+
+interface CacheFormData {
+  name: string;
+  bedrock: boolean;
+  basemap: boolean;
+  satellite: boolean;
+}
+
+
+
 
 const _Map = memo(CacheMap);
 
