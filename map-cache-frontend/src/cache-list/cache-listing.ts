@@ -1,12 +1,16 @@
 import m from "@macrostrat/hyper";
-import type {
-  MapCacheListing,
-  OfflineRegionStatus,
-  MapCachePriority,
-} from "./types";
+import type { MapCacheListing, OfflineRegionStatus } from "./types";
+import { MapCachePriority } from "./types";
 import { CacheMap } from "./cache-map";
 import { useState, memo } from "react";
 import { findGlobalCache, isGlobalCache, isStyleCache } from "./utils";
+import {
+  Button,
+  FormGroup,
+  SegmentedControl,
+  Spinner,
+} from "@blueprintjs/core";
+import "./map-caches.scss";
 
 export function CachePanelView({ data, dispatch, cacheMode }) {
   if (data == null) return null;
@@ -29,13 +33,13 @@ export function CachePanelView({ data, dispatch, cacheMode }) {
   ]);
 }
 
-function CacheList({ caches, dispatch }) {
+function CacheList({ caches, dispatch }: { caches: MapCacheListing[] }) {
   if (caches == null) {
-    return m("div.cache-list-empty", m("ion-spinner"));
+    return m("div.cache-list-empty", m(Spinner));
   }
 
   if (caches.length == 0) {
-    return m("div.cache-list-empty", m("ion-label", "No caches"));
+    return m("div.cache-list-empty", m("div.ion-label", "No caches"));
   }
 
   return m([
@@ -64,7 +68,7 @@ function StyleCacheItem({ cache }: { cache: MapCacheListing }) {
   return null;
 }
 
-function _CacheItem({
+function CacheItem({
   cache,
   dispatch,
 }: {
@@ -83,45 +87,36 @@ function _CacheItem({
     dispatch(action);
   };
 
-  return m(
-    "div.ion-card",
-    { class: "cache-card", disabled: uiState == "deleting" },
-    [
-      m("div.flex-row", [
-        m("div.main-column", [
-          m("div.ion-card-header", [
-            m("div.ion-card-subtitle", [
-              isGlobal ? "Global" : (cache.metadata?.name ?? "Unnamed cache"),
-            ]),
+  return m("div.ion-card.cache-card", { disabled: uiState == "deleting" }, [
+    m("div.flex-row", [
+      m("div.main-column", [
+        m("div.ion-card-header", [
+          m("h2.ion-card-subtitle", [
+            isGlobal ? "Global" : (cache.description?.name ?? "Unnamed cache"),
           ]),
-          m("div.ion-card-content", [
-            m(CacheLayers, { layers: cache.metadata?.layers }),
-            m(CacheStatus, { cache }),
-          ]),
-          m(CacheControlActionButtons, {
-            dispatch: interceptedDispatch,
-            cacheId: cache.id,
-            isDownloading,
-          }),
         ]),
-        m(_Map, {
-          geometry: cache?.geometry,
-          onClick() {
-            dispatch({ type: "view", cacheId: cache.id });
-          },
+        m("div.ion-card-content", [
+          m(CacheLayers, { layers: cache.description?.layers }),
+          m(CacheStatus, { cache }),
+        ]),
+        m(CacheControlActionButtons, {
+          dispatch: interceptedDispatch,
+          cacheId: cache.id,
+          isDownloading,
         }),
       ]),
-    ],
-  );
+      m(_Map, {
+        geometry: cache.definition.geometry,
+        onClick() {
+          dispatch({ type: "view", cacheId: cache.id });
+        },
+      }),
+    ]),
+  ]);
 }
 
-const CacheItem = memo(_CacheItem);
-
-function LabeledControl({ label, children }) {
-  return m("div.ion-row", { class: "flex-row" }, [
-    m("div.ion-col", { size: "auto" }, m("span.ion-label", label)),
-    m("div.ion-col", {}, children),
-  ]);
+function LabeledControl({ label, children, inline = true }) {
+  return m(FormGroup, { label, inline }, children);
 }
 
 type CacheUIState = "deleting" | "refreshing" | null;
@@ -148,28 +143,27 @@ function CacheSystemControls({
           {
             icon: "trash",
             color: "danger",
-            size: "medium",
             onClick: () => dispatch({ type: "delete-all" }),
           },
           "Delete all",
         ),
       ]),
-      m(LabeledControl, { label: "Cache mode" }, [
-        m(
-          "div.ion-segment",
-          {
-            value: cacheMode,
-          },
-          [
-            m(SegmentButton, { value: "network", dispatch }, "Network only"),
-            m(
-              SegmentButton,
-              { value: "cache-then-network", dispatch },
-              "Cache preferred",
-            ),
-            m(SegmentButton, { value: "cache", dispatch }, "Cache only"),
+      m(LabeledControl, { label: "Cache mode", inline: true }, [
+        m(SegmentedControl, {
+          size: "small",
+          options: [
+            { label: "Network", value: MapCachePriority.Network },
+            {
+              label: "Cache + Network",
+              value: MapCachePriority.CacheThenNetwork,
+            },
+            { label: "Cache", value: MapCachePriority.Cache },
           ],
-        ),
+          onValueChange(value: MapCachePriority) {
+            dispatch({ type: "set-cache-mode", cacheMode: value });
+          },
+          value: cacheMode,
+        }),
       ]),
       m("div.flex-row", [
         m("div.spacer"),
@@ -187,19 +181,6 @@ function CacheSystemControls({
       ]),
     ]),
   ]);
-}
-
-function SegmentButton({ value, children, dispatch }) {
-  return m(
-    "div.ion-segment-button",
-    {
-      value,
-      onClick() {
-        dispatch({ type: "set-cache-mode", cacheMode: value });
-      },
-    },
-    children,
-  );
 }
 
 function CacheLayers({ layers }) {
@@ -315,11 +296,7 @@ function AddGlobalCacheButton({ dispatch }) {
 }
 
 function IconButton({ icon, onClick, color, children, ...rest }) {
-  return m("ion-button", { size: "small", color, onClick, ...rest }, [
-    m("ion-icon", { slot: "start", name: icon }),
-    " ",
-    children,
-  ]);
+  return m(Button, { size: "small", icon, color, onClick, ...rest }, children);
 }
 
 function CacheSizes({

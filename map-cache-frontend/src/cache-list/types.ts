@@ -49,9 +49,11 @@ export interface OfflineRegionStatus {
 
 export interface MapCacheListing {
   id: number;
-  geometry: GeoJSON.Geometry;
   sizes?: ResourceInfo;
-  metadata: RockdCacheMetadata;
+  description: RockdCacheMetadata;
+  definition: {
+    geometry: GeoJSON.Geometry;
+  };
   offlineStatus?: OfflineRegionStatus;
 }
 

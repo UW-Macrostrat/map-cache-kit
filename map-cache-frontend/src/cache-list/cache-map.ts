@@ -104,7 +104,7 @@ const CacheMapContainer: any = forwardRef((props, ref) =>
 );
 
 function buildStaticMapURL(data: any, { width, height }) {
-  const bounds = boundsForPolygon(data);
+  // const bounds = boundsForPolygon(data);
   let url = `https://api.mapbox.com/styles/v1/jczaplewski/cl3w3bdai001f14ob27ckmpxz/static/`;
   url += `?access_token=${mapboxToken}&size=${width},${height}`;
   const feature = {
@@ -137,7 +137,11 @@ export function CacheMap({ geometry, onClick }) {
   if (geometry == null) return null;
   const mapRef = useRef<Map>(null);
 
-  const { ref, width, height } = useElementSize();
+  const ref = useRef<HTMLDivElement>(null);
+  const { width, height } = useElementSize(ref) ?? {
+    width: null,
+    height: null,
+  };
   const isVisible = useOnScreen(ref);
 
   useEffect(() => {

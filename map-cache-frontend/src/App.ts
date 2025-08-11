@@ -64,10 +64,10 @@ export default function App() {
       title: "Cache regions",
     },
     h("div.cache-areas-inner", [
-      h(NewCacheButton),
-      h(CacheList, { regions, setBounds }),
       h(CachePanelView, {
-        data: regions,
+        data: {
+          caches: regions ?? [],
+        },
         dispatch: () => {},
         cacheMode,
       }),

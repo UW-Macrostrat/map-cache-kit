@@ -8,11 +8,11 @@ export const GLOBAL_CACHE_NAME = "Global cache";
 export const GLOBAL_EXTENT = new LngLatBounds([-180, -90], [180, 90]);
 
 export function isGlobalCache(cache: MapCacheListing): boolean {
-  return cache.metadata.name == GLOBAL_CACHE_NAME;
+  return cache.description.name == GLOBAL_CACHE_NAME;
 }
 
 export function isStyleCache(cache: MapCacheListing): boolean {
-  return cache.metadata.name.startsWith("rockd-cache.v");
+  return cache.description.name.startsWith("rockd-cache.v");
 }
 
 export function findGlobalCache(

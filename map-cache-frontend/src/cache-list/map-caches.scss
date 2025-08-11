@@ -1,5 +1,4 @@
-rockd-cache-list {
-
+.cache-list-panel {
 
   &>div {
     height: 100%;
@@ -72,7 +71,7 @@ rockd-cache-list {
     display: flex;
     flex-direction: row;
     justify-content: space-between;
-  
+
     .spacer {
       flex-grow: 1;
       min-width: 2em;
