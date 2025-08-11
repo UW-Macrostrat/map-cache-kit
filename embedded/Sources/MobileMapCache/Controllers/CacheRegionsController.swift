@@ -46,10 +46,25 @@ struct MBXCacheRegionDescription: Content {
   let created: String
 }
 
+struct CachedAssetsInfo: Content {
+  let resourceSize: Int
+  let tileSize: Int
+  let resourceCount: Int
+  let tileCount: Int
+  
+  enum CodingKeys : String, CodingKey {
+    case resourceSize = "resource_size"
+    case tileSize = "tile_size"
+    case resourceCount = "resource_count"
+    case tileCount = "tile_count"
+  }
+}
+
 struct MBXCacheRegion: Content {
   let id: Int?
   let definition: MBXCacheRegionDefinition
   let description: MBXCacheRegionDescription
+  let cachedAssets: CachedAssetsInfo?
   
   var isGlobal: Bool {
     let tileCoord = TileCoord(0, 0, 0)
@@ -90,17 +105,20 @@ struct MBXCacheRegion: Content {
     case id
     case definition
     case description
-    case isGlobal
+    case isGlobal = "global"
+    case cachedAssets = "assets"
   }
   
   init(
     id: Int? = nil,
     definition: MBXCacheRegionDefinition,
-    description: MBXCacheRegionDescription
+    description: MBXCacheRegionDescription,
+    cachedAssets: CachedAssetsInfo? = nil
   ) {
     self.id = id
     self.definition = definition
     self.description = description
+    self.cachedAssets = cachedAssets
   }
   
   // Allow encoding of isGlobal as a computed property, but ignore it if sent
@@ -110,6 +128,7 @@ struct MBXCacheRegion: Content {
     try container.encode(definition, forKey: .definition)
     try container.encode(description, forKey: .description)
     try container.encode(isGlobal, forKey: .isGlobal)
+    try container.encode(cachedAssets, forKey: .cachedAssets)
   }
   
   init(from decoder: any Decoder) throws {
@@ -117,6 +136,11 @@ struct MBXCacheRegion: Content {
     self.id = try container.decodeIfPresent(Int.self, forKey: .id)
     self.definition = try container.decode(MBXCacheRegionDefinition.self, forKey: .definition)
     self.description = try container.decode(MBXCacheRegionDescription.self, forKey: .description)
+    
+    // First try decoding a nested "assets" field, and then try decoding
+    // the cached asset keys directly from this object (this handles database row decoding)
+    self.cachedAssets = try container.decodeIfPresent(CachedAssetsInfo.self, forKey: .cachedAssets)
+      ?? (try? decoder.singleValueContainer().decode(CachedAssetsInfo.self))
   }
   
 }
@@ -133,12 +157,43 @@ struct CacheRegionsController: RouteCollection {
     regions.delete(":id", use: self.deleteCacheRegion)
     regions.webSocket("socket", onUpgrade: self.webSocket)
   }
-
+  
   @Sendable
   func index(req: Request) async throws -> [MBXCacheRegion] {
     // Get a list of regions
     let sql: SQLQueryString = """
-      SELECT id, definition, description FROM regions
+      WITH resources_count AS (
+        SELECT
+          region_id,
+          sum(length(r.data)) resource_size,
+          count(r.data) resource_count
+        FROM region_resources rr
+        JOIN resources r
+          ON rr.resource_id = r.id
+        GROUP BY rr.region_id
+      ), tiles_count AS (
+        SELECT
+          region_id,
+          sum(length(t.data)) tile_size,
+          count(t.data) tile_count
+        FROM region_tiles rt
+        JOIN tiles t
+          ON rt.tile_id = t.id
+        GROUP BY rt.region_id
+      )
+      SELECT
+        r.id,
+        r.definition,
+        r.description,
+        rc.resource_size,
+        rc.resource_count,
+        tc.tile_size,
+        tc.tile_count
+      FROM regions r
+      LEFT JOIN resources_count rc
+        ON rc.region_id = r.id
+      LEFT JOIN tiles_count tc
+        ON tc.region_id = r.id
       """
 
     guard let db = req.db as? any SQLDatabase else {

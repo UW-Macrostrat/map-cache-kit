@@ -12,12 +12,16 @@ import {
   Spinner,
 } from "@blueprintjs/core";
 import "./map-caches.scss";
-import { cacheModeAtom } from "../utils.ts";
+import { cacheModeAtom, cacheRegionsAtom } from "../utils.ts";
 import { useAtom } from "jotai";
 
 export function CachePanelView({ data, dispatch }) {
+  const [caches] = useAtom(cacheRegionsAtom);
+  if (caches == null) {
+    return m("div.cache-list-panel", m(Spinner));
+  }
   if (data == null) return null;
-  const { caches } = data;
+
   const hasGlobalCache = findGlobalCache(caches ?? []) != null;
 
   return m("div.cache-list-panel", [

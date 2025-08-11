@@ -62,3 +62,23 @@ export interface CacheSystemInfo {
   sizes: ResourceInfo;
   totalSize: number;
 }
+
+export interface CacheRegionData {
+  id: string;
+  isGlobal: boolean | null;
+  description: {
+    name: string;
+    created: string;
+    updated: string;
+    styleVersion: string;
+    layers: string[];
+  };
+  definition: {
+    style_url: string;
+    pixel_ratio: number;
+    glyphs_rasterization: boolean;
+    min_zoom: number;
+    max_zoom: number;
+    geometry: Polygon;
+  };
+}

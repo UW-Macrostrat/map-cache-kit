@@ -11,17 +11,20 @@ import {
 import styles from "./App.module.sass";
 import "@macrostrat/style-system/dist/style-system.css";
 import "@blueprintjs/core/lib/css/blueprint.css";
-import { Button, FormGroup, SegmentedControl, Tag } from "@blueprintjs/core";
-import { useRef, useState } from "react";
-import { useQueryState, useRequestTransformer } from "./utils";
+import { FormGroup, SegmentedControl, Tag } from "@blueprintjs/core";
+import { useState } from "react";
+import {
+  cacheRegionsGeoJSONAtom,
+  requestTransformerAtom,
+  useQueryState,
+} from "./utils";
 import { useAPIResult } from "@macrostrat/ui-components";
-import { useMapRef, useMapStyleOperator } from "@macrostrat/mapbox-react";
+import { useMapStyleOperator } from "@macrostrat/mapbox-react";
 import { setGeoJSON } from "@macrostrat/mapbox-utils";
-import type { Polygon } from "geojson";
 import { bbox } from "@turf/bbox";
 import { CachePanelView } from "./cache-list";
 import { cacheURLAtom } from "./utils";
-import { useAtom } from "jotai";
+import { type Atom, atom, useAtom } from "jotai";
 
 const h = hyper.styled(styles);
 
@@ -29,8 +32,14 @@ const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
 const satelliteStyle = "mapbox://styles/jczaplewski/cl51esfdm000e14mq51erype3";
 
+const refreshForceAtom: Atom<number> = atom((get) => {
+  get(requestTransformerAtom);
+  return Math.random();
+});
+
 export default function App() {
   const [cacheURL] = useAtom(cacheURLAtom);
+  const [transformRequest] = useAtom(requestTransformerAtom);
   const [basemap, setBasemap] = useQueryState<"basic" | "satellite">(
     "basemap",
     {
@@ -38,7 +47,7 @@ export default function App() {
       validValues: ["basic", "satellite"],
     },
   );
-  const refreshCounter = useRef(0);
+  const [refreshCounter] = useAtom(refreshForceAtom);
 
   const basicStyle = useBasicMapStyle();
   const style = basemap === "basic" ? basicStyle : satelliteStyle;
@@ -98,7 +107,7 @@ export default function App() {
     h(
       MapPage,
       {
-        key: refreshCounter.current,
+        key: refreshCounter,
         mapboxToken,
         style,
         title: "Map caches",
@@ -118,104 +127,23 @@ export default function App() {
             }),
           ]),
         ]),
-        transformRequest: useRequestTransformer(cacheURL),
+        transformRequest,
       },
       h(CacheRegionsLayer, { regions }),
     ),
   ]);
 }
 
-interface CacheRegionData {
-  id: string;
-  isGlobal: boolean | null;
-  description: {
-    name: string;
-    created: string;
-    updated: string;
-    styleVersion: string;
-    layers: string[];
-  };
-  definition: {
-    style_url: string;
-    pixel_ratio: number;
-    glyphs_rasterization: boolean;
-    min_zoom: number;
-    max_zoom: number;
-    geometry: Polygon;
-  };
-}
-
 function CacheRegionsLayer({ regions }) {
+  const [geoJSONData] = useAtom(cacheRegionsGeoJSONAtom);
   useMapStyleOperator(
     (map) => {
-      setGeoJSON(map, "cacheRegions", {
-        type: "FeatureCollection",
-        features: regions
-          .filter((d) => !d.isGlobal)
-          .map((region) => ({
-            type: "Feature",
-            id: region.id,
-            properties: {
-              name: region.name,
-              description: region.description,
-            },
-            geometry: region.definition.geometry,
-          })),
-      });
+      setGeoJSON(map, "cacheRegions", geoJSONData);
     },
     [regions],
   );
 
   return null;
-}
-
-function CacheList({ regions }) {
-  const mapRef = useMapRef();
-
-  if (regions == null) return null;
-
-  if (regions.length === 0) {
-    return h("div.cache-list", h("p", "No cache regions available."));
-  }
-  return h(
-    "div.cache-list",
-    regions.map((region) => {
-      return h(
-        "div.cache-item",
-        {
-          key: region.id,
-          onClick() {
-            console.log(region.definition.geometry);
-            const bounds = bbox(region.definition.geometry);
-
-            mapRef.current?.fitBounds(bounds, {
-              duration: 500,
-            });
-          },
-        },
-        [
-          h("h3", region.description.name),
-          h("p", `Created: ${region.description.created}`),
-          h("p", `Updated: ${region.description.updated}`),
-          h("p", [h.if(region.isGlobal)(Tag, "global")]),
-        ],
-      );
-    }),
-  );
-}
-
-function NewCacheButton() {
-  return h("div.new-cache", [
-    h(
-      Button,
-      {
-        onClick: () => {
-          alert("Feature not implemented yet.");
-        },
-      },
-      "Create new cache",
-    ),
-  ]);
 }
 
 export function MapPage({

@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { useAtom } from "jotai";
-import { MapCachePriority } from "./cache-list/types.ts";
+import { type CacheRegionData, MapCachePriority } from "./cache-list/types.ts";
 import { atomWithHash } from "jotai-location";
 import { atom } from "jotai";
+import { atomWithRefresh } from "jotai/utils";
 
 export const cacheModeAtom = atomWithHash<MapCachePriority>(
   "map-cache-mode",
@@ -19,6 +19,35 @@ export const cacheModeAtom = atomWithHash<MapCachePriority>(
 );
 
 export const cacheURLAtom = atom(import.meta.env.VITE_CACHE_URL);
+
+export const cacheRegionsAtom = atomWithRefresh(async (get) => {
+  const cacheURL = get(cacheURLAtom);
+  const res = await fetch(cacheURL + "/regions");
+  if (!res.ok) {
+    throw new Error(`Failed to fetch cache regions: ${res.statusText}`);
+  }
+  const data = await res.json();
+  return data as CacheRegionData[];
+});
+
+export const cacheRegionsGeoJSONAtom = atom(async (get) => {
+  const cacheRegions = await get(cacheRegionsAtom);
+
+  return {
+    type: "FeatureCollection",
+    features: cacheRegions
+      .filter((d) => !d.isGlobal)
+      .map((region) => ({
+        type: "Feature",
+        id: region.id,
+        properties: {
+          name: region.description.name,
+          description: region.description,
+        },
+        geometry: region.definition.geometry,
+      })),
+  };
+});
 
 export const requestTransformerAtom = atom((get) => {
   const cacheMode = get(cacheModeAtom);
@@ -49,11 +78,6 @@ export const requestTransformerAtom = atom((get) => {
     };
   };
 });
-
-export function useRequestTransformer() {
-  const [requestTransformer] = useAtom(requestTransformerAtom);
-  return requestTransformer;
-}
 
 interface QueryStateOptions<T> {
   defaultValue: T;
