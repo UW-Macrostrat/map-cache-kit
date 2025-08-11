@@ -4,6 +4,7 @@ import { MapCachePriority } from "./types";
 import { CacheMap } from "./cache-map";
 import { useState, memo } from "react";
 import { findGlobalCache, isGlobalCache, isStyleCache } from "./utils";
+import { useReconnectableWebSocket } from "./web-socket.ts";
 import {
   Button,
   FormGroup,
@@ -11,8 +12,10 @@ import {
   Spinner,
 } from "@blueprintjs/core";
 import "./map-caches.scss";
+import { cacheModeAtom } from "../utils.ts";
+import { useAtom } from "jotai";
 
-export function CachePanelView({ data, dispatch, cacheMode }) {
+export function CachePanelView({ data, dispatch }) {
   if (data == null) return null;
   const { caches } = data;
   const hasGlobalCache = findGlobalCache(caches ?? []) != null;
@@ -27,9 +30,8 @@ export function CachePanelView({ data, dispatch, cacheMode }) {
         m("em", " (current map area)"),
       ]),
     ),
-    // @ts-ignore
     m(CacheList, { caches, dispatch }),
-    m(CacheSystemControls, { dispatch, totalSize: data?.totalSize, cacheMode }),
+    m(CacheSystemControls, { dispatch, totalSize: data?.totalSize }),
   ]);
 }
 
@@ -124,11 +126,9 @@ type CacheUIState = "deleting" | "refreshing" | null;
 function CacheSystemControls({
   totalSize,
   dispatch,
-  cacheMode,
 }: {
   totalSize: number;
   dispatch(action: CacheManagementAction): void;
-  cacheMode: MapCachePriority;
   uiState?: CacheUIState;
 }) {
   return m("div.ion-card", [
@@ -148,38 +148,29 @@ function CacheSystemControls({
           "Delete all",
         ),
       ]),
-      m(LabeledControl, { label: "Cache mode", inline: true }, [
-        m(SegmentedControl, {
-          size: "small",
-          options: [
-            { label: "Network", value: MapCachePriority.Network },
-            {
-              label: "Cache + Network",
-              value: MapCachePriority.CacheThenNetwork,
-            },
-            { label: "Cache", value: MapCachePriority.Cache },
-          ],
-          onValueChange(value: MapCachePriority) {
-            dispatch({ type: "set-cache-mode", cacheMode: value });
-          },
-          value: cacheMode,
-        }),
-      ]),
-      m("div.flex-row", [
-        m("div.spacer"),
-        m(
-          "div.ion-button",
-          {
-            size: "small",
-            color: "light",
-            onClick() {
-              dispatch({ type: "delete-ambient" });
-            },
-          },
-          "Clear ambient cache",
-        ),
-      ]),
+      m(CacheModeControl),
     ]),
+  ]);
+}
+
+function CacheModeControl() {
+  const [cacheMode, setCacheMode] = useAtom(cacheModeAtom);
+  return m(LabeledControl, { label: "Cache mode", inline: true }, [
+    m(SegmentedControl, {
+      size: "small",
+      options: [
+        { label: "Network", value: MapCachePriority.Network },
+        {
+          label: "Cache + Network",
+          value: MapCachePriority.CacheThenNetwork,
+        },
+        { label: "Cache", value: MapCachePriority.Cache },
+      ],
+      onValueChange(value: MapCachePriority) {
+        setCacheMode(value);
+      },
+      value: cacheMode,
+    }),
   ]);
 }
 
@@ -192,7 +183,7 @@ function CacheLayers({ layers }) {
   ]);
 }
 
-function CardDownloadState({ data }: { data: OfflineRegionStatus }) {
+function CacheDownloadState({ data }: { data: OfflineRegionStatus }) {
   if (data?.downloadState != "active") return null;
   const expected = data.requiredResourceCount + data.requiredTileCount;
   const completed = data.completedResourceCount + data.completedTileCount;
@@ -220,7 +211,7 @@ function CacheStatus({ cache }) {
   const isDownloading = cacheIsDownloading(cache);
 
   return m("div.cache-status", [
-    m.if(isDownloading)(CardDownloadState, {
+    m.if(isDownloading)(CacheDownloadState, {
       data: cache.offlineStatus,
     }),
     m("p.flex-row", [
@@ -240,24 +231,6 @@ function CacheControlActionButtons({
     dispatch({ type: action, cacheId });
 
   return m("div.ion-row", { class: "ion-padding-start" }, [
-    // m.if(isDownloading)(
-    //   IconButton,
-    //   {
-    //     icon: "pause",
-    //     color: "warning",
-    //     onClick: runAction("cancel-download"),
-    //   },
-    //   "Pause download"
-    // ),
-    // m.if(!isDownloading)(
-    //   IconButton,
-    //   {
-    //     icon: "refresh",
-    //     color: "secondary",
-    //     onClick: runAction("refresh"),
-    //   },
-    //   "Refresh"
-    // ),
     m(
       IconButton,
       {

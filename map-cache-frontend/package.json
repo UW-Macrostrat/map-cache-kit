@@ -20,9 +20,12 @@
     "@turf/bbox": "^7.2.0",
     "@turf/bbox-polygon": "^7.2.0",
     "chroma-js": "^3.1.2",
+    "jotai": "^2.13.1",
+    "jotai-location": "^0.6.1",
     "mapbox-gl": "^3.14.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-use-websocket": "^4.13.0",
     "use-query-string": "^2.4.1"
   },
   "devDependencies": {

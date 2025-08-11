@@ -2952,6 +2952,36 @@ __metadata:
   languageName: node
   linkType: hard
 
+"jotai-location@npm:^0.6.1":
+  version: 0.6.1
+  resolution: "jotai-location@npm:0.6.1"
+  peerDependencies:
+    jotai: ">=1.11.0"
+  checksum: 10c0/2217ad6abb7925f3e93f6e1291e915a2b5b48f979b485961f98b345635002a6dccd3b07a210ea1909230d6d13d5fb1b93637dffa4957cbf1672ef83bd365f794
+  languageName: node
+  linkType: hard
+
+"jotai@npm:^2.13.1":
+  version: 2.13.1
+  resolution: "jotai@npm:2.13.1"
+  peerDependencies:
+    "@babel/core": ">=7.0.0"
+    "@babel/template": ">=7.0.0"
+    "@types/react": ">=17.0.0"
+    react: ">=17.0.0"
+  peerDependenciesMeta:
+    "@babel/core":
+      optional: true
+    "@babel/template":
+      optional: true
+    "@types/react":
+      optional: true
+    react:
+      optional: true
+  checksum: 10c0/777915c4f83c372bac066ce3acb037c8c5c01e2789b8b435bf3f302ef32a5564d471217c89b9cdee219d735d445b166bf3ff15a9f43f4cb92a8a9115c72446ad
+  languageName: node
+  linkType: hard
+
 "js-tokens@npm:^3.0.0 || ^4.0.0, js-tokens@npm:^4.0.0":
   version: 4.0.0
   resolution: "js-tokens@npm:4.0.0"
@@ -3150,10 +3180,13 @@ __metadata:
     eslint-plugin-react-hooks: "npm:^5.2.0"
     eslint-plugin-react-refresh: "npm:^0.4.19"
     globals: "npm:^16.0.0"
+    jotai: "npm:^2.13.1"
+    jotai-location: "npm:^0.6.1"
     mapbox-gl: "npm:^3.14.0"
     prettier: "npm:^3.5.3"
     react: "npm:^19.1.0"
     react-dom: "npm:^19.1.0"
+    react-use-websocket: "npm:^4.13.0"
     sass-embedded: "npm:^1.89.2"
     typescript: "npm:~5.8.3"
     typescript-eslint: "npm:^8.30.1"
@@ -3953,6 +3986,13 @@ __metadata:
     "@types/react":
       optional: true
   checksum: 10c0/5e01e8d3a4144d160af26f7ea8300887ed8379ee14b1fad7979ea755d5bfa4badfdab531cb7d4495488e94083f829bd5b28a8f6661522b11729fceb42dcf73ea
+  languageName: node
+  linkType: hard
+
+"react-use-websocket@npm:^4.13.0":
+  version: 4.13.0
+  resolution: "react-use-websocket@npm:4.13.0"
+  checksum: 10c0/92f0941c67984f3b43979a2e5aa9a358d1e2b01591575b09fdcdd638d0c4275f6c5e180d1173632bc0fd564458afc3583643635eaeb4e0b8ce059555576661f3
   languageName: node
   linkType: hard
 

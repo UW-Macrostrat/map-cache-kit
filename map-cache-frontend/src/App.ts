@@ -20,28 +20,17 @@ import { setGeoJSON } from "@macrostrat/mapbox-utils";
 import type { Polygon } from "geojson";
 import { bbox } from "@turf/bbox";
 import { CachePanelView } from "./cache-list";
-import { MapCachePriority } from "./cache-list/types.ts";
+import { cacheURLAtom } from "./utils";
+import { useAtom } from "jotai";
 
 const h = hyper.styled(styles);
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
-const cacheURL = import.meta.env.VITE_CACHE_URL;
 
 const satelliteStyle = "mapbox://styles/jczaplewski/cl51esfdm000e14mq51erype3";
 
-const cacheModeOptions: { label: string; value: MapCachePriority } = [
-  { label: "Cache", value: MapCachePriority.Cache },
-  { label: "Fallback", value: MapCachePriority.CacheThenNetwork },
-  { label: "Network", value: MapCachePriority.Network },
-];
-
-const cacheModes = cacheModeOptions.map((option) => option.value);
-
 export default function App() {
-  const [cacheMode, setCacheMode] = useQueryState("mode", {
-    defaultValue: MapCachePriority.CacheThenNetwork,
-    validValues: cacheModes,
-  });
+  const [cacheURL] = useAtom(cacheURLAtom);
   const [basemap, setBasemap] = useQueryState<"basic" | "satellite">(
     "basemap",
     {
@@ -56,8 +45,6 @@ export default function App() {
 
   const regions: CacheRegionData[] = useAPIResult(cacheURL + "/regions");
 
-  const [bounds, setBounds] = useState(null);
-
   const detailPanel = h(
     DetailsPanel,
     {
@@ -69,7 +56,6 @@ export default function App() {
           caches: regions ?? [],
         },
         dispatch: () => {},
-        cacheMode,
       }),
     ]),
   );
@@ -115,25 +101,10 @@ export default function App() {
         key: refreshCounter.current,
         mapboxToken,
         style,
-        bounds,
         title: "Map caches",
         detailPanel,
         overlayStyles,
         controls: h("div.cache-controls", [
-          h(FormGroup, { label: "Cache mode" }, [
-            h(SegmentedControl, {
-              options: [
-                { label: "Cache", value: "cache" },
-                { label: "Fallback", value: "cache-then-network" },
-                { label: "Network", value: "network" },
-              ],
-              onValueChange: (value) => {
-                setCacheMode(value);
-                refreshCounter.current += 1;
-              },
-              value: cacheMode,
-            }),
-          ]),
           h(FormGroup, { label: "Basemap" }, [
             h(SegmentedControl, {
               options: [
@@ -147,7 +118,7 @@ export default function App() {
             }),
           ]),
         ]),
-        transformRequest: useRequestTransformer(cacheURL, cacheMode),
+        transformRequest: useRequestTransformer(cacheURL),
       },
       h(CacheRegionsLayer, { regions }),
     ),

@@ -1,34 +1,58 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
+import { useAtom } from "jotai";
+import { MapCachePriority } from "./cache-list/types.ts";
+import { atomWithHash } from "jotai-location";
+import { atom } from "jotai";
 
-export function useRequestTransformer(cacheURL, cacheMode) {
-  return useCallback(
-    (req, type) => {
-      // Extract the domain from the request URL
-      const url = new URL(req);
-      const domain = url.hostname;
-      const scheme = url.protocol;
-
-      const baseURL = scheme + "//" + domain;
-
-      const newPath = req.replace(baseURL, cacheURL + "/tiles");
-
-      const newURL = new URL(newPath);
-
-      // Get query parameters
-      const params = new URLSearchParams(url.search);
-
-      // Add x-cache- parameters
-      params.set("x-cache-domain", domain);
-      params.set("x-cache-mode", cacheMode);
-
-      newURL.search = params.toString();
-
-      return {
-        url: newURL.toString(),
-      };
+export const cacheModeAtom = atomWithHash<MapCachePriority>(
+  "map-cache-mode",
+  MapCachePriority.CacheThenNetwork,
+  {
+    serialize: (value) => value.toString(),
+    deserialize: (value) => {
+      if (value == null) {
+        return MapCachePriority.CacheThenNetwork;
+      }
+      return value as MapCachePriority;
     },
-    [cacheMode],
-  );
+  },
+);
+
+export const cacheURLAtom = atom(import.meta.env.VITE_CACHE_URL);
+
+export const requestTransformerAtom = atom((get) => {
+  const cacheMode = get(cacheModeAtom);
+  const cacheURL = get(cacheURLAtom);
+  return (request, type) => {
+    // Extract the domain from the request URL
+    const url = new URL(request);
+    const domain = url.hostname;
+    const scheme = url.protocol;
+
+    const baseURL = scheme + "//" + domain;
+
+    const newPath = request.replace(baseURL, cacheURL + "/tiles");
+
+    const newURL = new URL(newPath);
+
+    // Get query parameters
+    const params = new URLSearchParams(url.search);
+
+    // Add x-cache- parameters
+    params.set("x-cache-domain", domain);
+    params.set("x-cache-mode", cacheMode);
+
+    newURL.search = params.toString();
+
+    return {
+      url: newURL.toString(),
+    };
+  };
+});
+
+export function useRequestTransformer() {
+  const [requestTransformer] = useAtom(requestTransformerAtom);
+  return requestTransformer;
 }
 
 interface QueryStateOptions<T> {
