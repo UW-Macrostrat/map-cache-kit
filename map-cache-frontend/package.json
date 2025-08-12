@@ -19,6 +19,7 @@
     "@macrostrat/ui-components": "^4.2.0",
     "@turf/bbox": "^7.2.0",
     "@turf/bbox-polygon": "^7.2.0",
+    "@types/geojson": "^7946.0.16",
     "chroma-js": "^3.1.2",
     "immutability-helper": "^3.1.1",
     "jotai": "^2.13.1",

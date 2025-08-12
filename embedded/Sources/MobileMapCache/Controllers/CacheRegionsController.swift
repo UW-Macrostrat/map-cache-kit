@@ -153,14 +153,17 @@ struct CacheRegionsInfo: Content {
 struct CacheRegionsController: RouteCollection {
 
   let connectionManager = WebSocketConnectionManager()
+  var taskStore: [Int: Task<Void, any Error>] = [:]
 
   func boot(routes: any RoutesBuilder) throws {
     let regions = routes.grouped("regions")
 
     regions.get(use: self.index)
     regions.post(use: self.create)
-    regions.delete(":id", use: self.deleteCacheRegion)
     regions.webSocket("events", onUpgrade: self.webSocket)
+    regions.post(":id", "download", use: self.downloadAssets)
+    regions.post(":id", "cancel", use: self.cancelRegionDownload)
+    regions.delete(":id", use: self.deleteCacheRegion)
   }
   
   @Sendable
@@ -213,7 +216,7 @@ struct CacheRegionsController: RouteCollection {
 
     return CacheRegionsInfo(regions: regions, assets: total)
   }
-
+  
   // Route to create a cache region
   @Sendable
   func create(req: Request) async throws -> MBXCacheRegion {
@@ -225,30 +228,80 @@ struct CacheRegionsController: RouteCollection {
     }
     
     let region = try await createRegion(db, region: regionCandidate)
-
-    // Start the download process (will run outside of the request lifecycle)
-    Task.detached {
-      do {
-        try await self.downloadRegionAssets(region, req: req)
-      } catch {
-        req.logger.error("Failed to download assets for region: \(error)")
-      }
-    }
+    self.startRegionDownload(req.application, region: region)
 
     return region
   }
   
-  func downloadRegionAssets(_ region: MBXCacheRegion, req: Request) async throws {
-    // This function would handle the downloading of assets for the region
-    // You can implement the logic to download tiles, styles, etc. based on the region definition
-    // For now, we will just log the region definition
-    req.logger.info("Downloading assets for region: \(region.definition)")
+  func downloadAssets(req: Request) async throws -> HTTPStatus {
+    guard let id = req.parameters.get("id", as: Int.self) else {
+      throw Abort(.badRequest, reason: "Missing region ID")
+    }
+
+    // Fetch the region from the database
+    guard let db = req.db as? any SQLDatabase else {
+      throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
+    }
+    
+    guard let region = try await db.raw(
+      "SELECT * FROM regions WHERE id = \(bind: id)"
+    ).first(decoding: MBXCacheRegion.self) else {
+      throw Abort(.notFound, reason: "Region not found")
+    }
+    self.startRegionDownload(req.application, region: region)
+    return .ok
+  }
+  
+  func startRegionDownload(_ app: Application, region: MBXCacheRegion) {
+    guard let regionID = region.id else {
+      app.logger.error("Region ID is missing")
+      return
+    }
+    // Start the download process (will run outside of the request lifecycle)
+    let task = Task.detached {
+      try await self.downloadRegionAssets(
+        app: app,
+        region: region
+      )
+    }
+    app.addDownloadTask(id: regionID, task: task)
+  }
+  
+  func cancelRegionDownload(req: Request) async throws -> HTTPStatus {
+    guard let id = req.parameters.get("id", as: Int.self) else {
+      throw Abort(.badRequest, reason: "Missing region ID")
+    }
+    // Cancel the download task if it exists
+    req.application.cancelDownloadTask(id: id)
+    return .noContent
+  }
+  
+  func downloadRegionAssets(app: Application, region: MBXCacheRegion) async throws {
+    app.logger.info("Downloading assets for region: \(region.definition)")
+    
+    guard let regionID = region.id else {
+      throw RuntimeError.databaseError("Region ID is missing")
+    }
+    
+    let encoder = JSONEncoder()
+    let errorJSON = try encoder.encode(["error": true])
     
     let regionDefinition = try region.asRegionDefinition()
     
-    
-    // Example: You might want to call a service that handles tile downloads
-    // await TileDownloadService.downloadTiles(for: region.definition)
+    _ = try await MobileMapCache.downloadRegionAssets(with: app, using: regionDefinition, regionId: regionID) { progress in
+      app.logger
+        .info("""
+          Downloading region \(regionID):
+          - \(progress.resourcesDownloaded) of \(progress.resourcesTotal) resources
+          - \(progress.tilesDownloaded) of \(progress.tilesTotal) tiles
+          """
+        )
+      guard let data = try? encoder.encode(progress), let msg = String(data: data, encoding: .utf8) else {
+        app.logger.error("Failed to encode progress message")
+        return
+      }
+      try await self.connectionManager.sendToAll(msg)
+    }
   }
 
   func webSocket(request: Request, ws: WebSocket) {

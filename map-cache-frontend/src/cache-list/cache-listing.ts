@@ -6,19 +6,31 @@ import type {
 } from "./types";
 import { MapCachePriority } from "./types";
 import { CacheMap } from "./cache-map";
-import { useState, memo } from "react";
+import { useState, memo, Suspense } from "react";
 import { findGlobalCache, isGlobalCache, isStyleCache } from "./utils";
 import { useReconnectableWebSocket } from "./web-socket.ts";
 import {
   Button,
+  Card,
   FormGroup,
   SegmentedControl,
   Spinner,
+  Switch,
 } from "@blueprintjs/core";
 import "./map-caches.scss";
-import { cacheModeAtom, cacheDataAtom } from "../utils.ts";
+import {
+  cacheModeAtom,
+  cacheDataAtom,
+  mapAtom,
+  mapPositionAtom,
+  mapboxTokenAtom,
+  showCacheFormAtom,
+} from "../state.ts";
 import { useAtom } from "jotai";
-
+import { bbox } from "@turf/bbox";
+import type { LngLat, LngLatBoundsLike } from "mapbox-gl";
+import { atom } from "jotai";
+import { getNamedLocation } from "../utils.ts";
 
 export function CachePanelView({ dispatch }) {
   const [data] = useAtom(cacheDataAtom);
@@ -34,14 +46,7 @@ export function CachePanelView({ dispatch }) {
 
   return m("div.cache-list-panel", [
     m.if(!hasGlobalCache)(AddGlobalCacheButton, { dispatch }),
-    m(
-      NewCacheButton,
-      { dispatch },
-      m("span", [
-        m("span.ion-padding-right", "New cache"),
-        m("em", " (current map area)"),
-      ]),
-    ),
+    m(NewCacheForm),
     m(CacheList, { caches, dispatch }),
     m(CacheSystemControls, { dispatch, totalSize }),
   ]);
@@ -52,7 +57,9 @@ function CacheList({ caches, dispatch }: { caches: MapCacheListing[] }) {
     return m("div.cache-list-empty", m(Spinner));
   }
 
-  if (caches.length == 0) {
+  const _caches = caches.filter((c) => !isStyleCache(c));
+
+  if (_caches.length == 0) {
     return m("div.cache-list-empty", m("div.ion-label", "No caches"));
   }
 
@@ -60,11 +67,7 @@ function CacheList({ caches, dispatch }: { caches: MapCacheListing[] }) {
     m(
       "div.ion-list",
       null,
-      caches.map((cache) => {
-        if (isStyleCache(cache)) {
-          return m(StyleCacheItem, { cache, key: cache.id });
-        }
-
+      _caches.map((cache) => {
         return m(CacheItem, {
           key: cache.id,
           cache,
@@ -76,22 +79,116 @@ function CacheList({ caches, dispatch }: { caches: MapCacheListing[] }) {
   ]);
 }
 
-
-interface CacheFormData {
-  name: string;
+interface CacheLayers {
   bedrock: boolean;
   basemap: boolean;
   satellite: boolean;
 }
 
+interface CacheFormData extends CacheLayers {
+  name: string;
+}
 
+const cacheLayersAtom = atom<CacheLayers>({
+  bedrock: true,
+  basemap: true,
+  satellite: false,
+});
 
+// Lazy atom for name API call
+export const locationNameAtom = atom<Promise<string>>(async (get, set) => {
+  const location = get(mapPositionAtom);
+  if (location == null) {
+    return "Unknown location";
+  }
+  const apiKey = get(mapboxTokenAtom);
+
+  const { zoom, ...center } = location.target;
+
+  return await getNamedLocation(center as LngLat, zoom, apiKey);
+});
+
+const newCacheDataAtom = atom<CacheFormData>(async (get) => {
+  const showForm = get(showCacheFormAtom);
+  if (!showForm) {
+    return null;
+  }
+
+  const name = await get(locationNameAtom);
+  const layers = get(cacheLayersAtom);
+  return {
+    name,
+    ...layers,
+  };
+});
+
+function NewCacheForm() {
+  const [showForm, setShowForm] = useAtom(showCacheFormAtom);
+  const [cacheData] = useAtom(newCacheDataAtom);
+  const [cacheLayers, setCacheLayers] = useAtom(cacheLayersAtom);
+
+  if (!showForm) {
+    return m(
+      Button,
+      {
+        icon: "add",
+        onClick: () => setShowForm(true),
+        className: "ion-margin",
+      },
+      "Create new cache",
+    );
+  }
+
+  return m(
+    Suspense,
+    m(Card, [
+      m("h3", cacheData.name),
+      m(LabeledControl, { label: "Layers" }, [
+        m("div.cache-layers-checkboxes", [
+          ["bedrock", "basemap", "satellite"].map((layer) =>
+            m(Switch, {
+              type: "checkbox",
+              label: capitalize(layer),
+              checked: cacheLayers[layer],
+              onChange: (e) => {
+                setCacheLayers({
+                  ...cacheLayers,
+                  [layer]: e.target.checked,
+                });
+              },
+            }),
+          ),
+        ]),
+      ]),
+      m(
+        Button,
+        {
+          icon: "check",
+          intent: "primary",
+          onClick() {
+            setShowForm(false);
+            // Trigger cache creation
+            // dispatch({ type: 'create', data: cacheData });
+          },
+        },
+        "Create cache",
+      ),
+      m(
+        Button,
+        {
+          icon: "cross",
+          intent: "danger",
+          onClick() {
+            setShowForm(false);
+          },
+        },
+        "Cancel",
+      ),
+    ]),
+  );
+}
 
 const _Map = memo(CacheMap);
-
-function StyleCacheItem({ cache }: { cache: MapCacheListing }) {
-  return null;
-}
 
 function CacheItem({
   cache,
@@ -105,6 +202,8 @@ function CacheItem({
 
   const isGlobal = isGlobalCache(cache);
 
+  const [map] = useAtom(mapAtom);
+
   const interceptedDispatch = (action: CacheManagementAction) => {
     if (action.type === "delete") {
       setUIState("deleting");
@@ -112,32 +211,49 @@ function CacheItem({
     dispatch(action);
   };
 
-  return m("div.ion-card.cache-card", { disabled: uiState == "deleting" }, [
-    m("div.flex-row", [
-      m("div.main-column", [
-        m("div.ion-card-header", [
-          m("h2.ion-card-subtitle", [
-            isGlobal ? "Global" : (cache.description?.name ?? "Unnamed cache"),
+  return m(
+    "div.ion-card.cache-card",
+    {
+      disabled: uiState == "deleting",
+      onClick() {
+        if (map == null) return;
+        const bounds = bbox(cache.definition.geometry);
+        const _bbox: LngLatBoundsLike = [
+          [bounds[0], bounds[1]],
+          [bounds[2], bounds[3]],
+        ];
+        map.fitBounds(_bbox, { duration: 500 });
+      },
+    },
+    [
+      m("div.flex-row", [
+        m("div.main-column", [
+          m("div.ion-card-header", [
+            m("h2.ion-card-subtitle", [
+              isGlobal
+                ? "Global"
+                : (cache.description?.name ?? "Unnamed cache"),
+            ]),
           ]),
+          m("div.ion-card-content", [
+            m(CacheLayers, { layers: cache.description?.layers }),
+            m(CacheStatus, { cache }),
+          ]),
+          m(CacheControlActionButtons, {
+            dispatch: interceptedDispatch,
+            cacheId: cache.id,
+            isDownloading,
+          }),
         ]),
-        m("div.ion-card-content", [
-          m(CacheLayers, { layers: cache.description?.layers }),
-          m(CacheStatus, { cache }),
-        ]),
-        m(CacheControlActionButtons, {
-          dispatch: interceptedDispatch,
-          cacheId: cache.id,
-          isDownloading,
+        m(_Map, {
+          geometry: cache.definition.geometry,
+          onClick() {
+            dispatch({ type: "view", cacheId: cache.id });
+          },
         }),
       ]),
-      m(_Map, {
-        geometry: cache.definition.geometry,
-        onClick() {
-          dispatch({ type: "view", cacheId: cache.id });
-        },
-      }),
-    ]),
-  ]);
+    ],
+  );
 }
 
 function LabeledControl({ label, children, inline = true }) {

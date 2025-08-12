@@ -3172,6 +3172,7 @@ __metadata:
     "@turf/bbox": "npm:^7.2.0"
     "@turf/bbox-polygon": "npm:^7.2.0"
     "@types/chroma-js": "npm:^3"
+    "@types/geojson": "npm:^7946.0.16"
     "@types/react": "npm:^19.1.2"
     "@types/react-dom": "npm:^19.1.2"
     "@vitejs/plugin-react": "npm:^4.4.1"

@@ -11,19 +11,19 @@ import {
 import styles from "./App.module.sass";
 import "@macrostrat/style-system/dist/style-system.css";
 import "@blueprintjs/core/lib/css/blueprint.css";
-import { FormGroup, SegmentedControl, Tag } from "@blueprintjs/core";
+import { FormGroup, SegmentedControl } from "@blueprintjs/core";
 import { useState } from "react";
 import {
+  basemapAtom,
   cacheRegionsGeoJSONAtom,
   requestTransformerAtom,
-  useQueryState,
-} from "./utils";
-import { useAPIResult } from "@macrostrat/ui-components";
+  mapAtom,
+  mapPositionAtom,
+} from "./state.ts";
 import { useMapStyleOperator } from "@macrostrat/mapbox-react";
 import { setGeoJSON } from "@macrostrat/mapbox-utils";
 import { bbox } from "@turf/bbox";
 import { CachePanelView } from "./cache-list";
-import { cacheURLAtom } from "./utils";
 import { type Atom, atom, useAtom } from "jotai";
 
 const h = hyper.styled(styles);
@@ -38,21 +38,12 @@ const refreshForceAtom: Atom<number> = atom((get) => {
 });
 
 export default function App() {
-  const [cacheURL] = useAtom(cacheURLAtom);
   const [transformRequest] = useAtom(requestTransformerAtom);
-  const [basemap, setBasemap] = useQueryState<"basic" | "satellite">(
-    "basemap",
-    {
-      defaultValue: "basic",
-      validValues: ["basic", "satellite"],
-    },
-  );
+  const [basemap, setBasemap] = useAtom(basemapAtom);
   const [refreshCounter] = useAtom(refreshForceAtom);
 
   const basicStyle = useBasicMapStyle();
   const style = basemap === "basic" ? basicStyle : satelliteStyle;
-
-  const regions: CacheRegionData[] = useAPIResult(cacheURL + "/regions");
 
   const detailPanel = h(
     DetailsPanel,
@@ -61,9 +52,6 @@ export default function App() {
     },
     h("div.cache-areas-inner", [
       h(CachePanelView, {
-        data: {
-          caches: regions ?? [],
-        },
         dispatch: () => {},
       }),
     ]),
@@ -97,6 +85,13 @@ export default function App() {
           paint: {
             "line-color": "#f08",
             "line-width": 2,
+            "line-dasharray": [
+              "case",
+              // If the region is a candidate, use a dashed line
+              ["coalesce", ["get", "candidate"], false],
+              ["literal", [2, 2]],
+              ["literal", [1, 0]],
+            ],
           },
         },
       ],
@@ -121,7 +116,7 @@ export default function App() {
                 { label: "Satellite", value: "satellite" },
               ],
               onValueChange: (value) => {
-                setBasemap(value);
+                setBasemap(value as "basic" | "satellite");
               },
               value: basemap,
             }),
@@ -129,18 +124,18 @@ export default function App() {
         ]),
         transformRequest,
       },
-      h(CacheRegionsLayer, { regions }),
+      [h(CacheRegionsLayer)],
     ),
   ]);
 }
 
-function CacheRegionsLayer({ regions }) {
+function CacheRegionsLayer() {
   const [geoJSONData] = useAtom(cacheRegionsGeoJSONAtom);
   useMapStyleOperator(
     (map) => {
       setGeoJSON(map, "cacheRegions", geoJSONData);
     },
-    [regions],
+    [geoJSONData],
   );
 
   return null;
@@ -150,7 +145,6 @@ export function MapPage({
   title = "Map inspector",
   headerElement = null,
   transformRequest = null,
-  mapPosition = null,
   mapboxToken = null,
   controls = null,
   children = null,
@@ -168,6 +162,8 @@ export function MapPage({
   */
 
   const [isOpen, setOpen] = useState(false);
+  const [_, onMapLoaded] = useAtom(mapAtom);
+  const [__, onMapMoved] = useAtom(mapPositionAtom);
 
   return h(
     MapAreaContainer,
@@ -194,10 +190,11 @@ export function MapPage({
       {
         style,
         transformRequest,
-        mapPosition,
         projection: { name: "globe" },
         mapboxToken,
         bounds,
+        onMapLoaded,
+        onMapMoved,
         ...rest,
       },
       children,

@@ -139,6 +139,7 @@ struct CacheRegionProgress: Content {
   let tilesDownloaded: Int
   let tilesTotal: Int
   let tilesFailed: Int
+  let isFinished: Bool
   
   func progress() -> Double {
     let total = Double(resourcesTotal + tilesTotal)
@@ -149,7 +150,7 @@ struct CacheRegionProgress: Content {
 
 func downloadRegionAssets(
   with app: Application, using definition: CacheRegionDefinition, regionId: Int,
-  onProgress: @escaping (CacheRegionProgress) -> Void = { _ in }
+  onProgress: @escaping (CacheRegionProgress) async throws -> Void = { _ in }
 ) async throws -> CacheRegionProgress {
 
   // Get the assets to download
@@ -168,6 +169,7 @@ func downloadRegionAssets(
       let uri = URI(string: resource.urlTemplate)
 
       taskGroup.addTask {
+        try Task.checkCancellation()
         do {
           let uri = getDownloadURL(resource, params: [
             "access_token": mapboxToken,
@@ -200,6 +202,7 @@ func downloadRegionAssets(
         "access_token": mapboxToken,
       ])
       taskGroup.addTask {
+        try Task.checkCancellation()
         do {
           let res = try await downloadFile(with: app, url: uri)
           app.logger.info("Tile \(uri): \(res.status)")
@@ -245,14 +248,16 @@ func downloadRegionAssets(
       resourcesTotal: totalResources,
       tilesDownloaded: 0,
       tilesTotal: totalTiles,
-      tilesFailed: 0
+      tilesFailed: 0,
+      isFinished: false
     )
     
-    onProgress(initialProgress)
+    try await onProgress(initialProgress)
     
     var lastVal = initialProgress
     
     // Handle completed downloads
+    var nTasks = 0
     for try await result in taskGroup {
       switch result.result {
       case .success(let data):
@@ -295,12 +300,14 @@ func downloadRegionAssets(
         resourcesTotal: totalResources,
         tilesDownloaded: downloadedTiles,
         tilesTotal: totalTiles,
-        tilesFailed: failedTiles
+        tilesFailed: failedTiles,
+        isFinished: taskGroup.isEmpty
       )
       
+      nTasks += 1
       lastVal = val
       
-      onProgress(val)
+      try await onProgress(val)
       
     }
     

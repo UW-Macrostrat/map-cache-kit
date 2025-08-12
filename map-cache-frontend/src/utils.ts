@@ -1,139 +1,59 @@
-import { useState } from "react";
-import { type CacheData, MapCachePriority } from "./cache-list/types.ts";
-import { atomWithHash } from "jotai-location";
-import { atom } from "jotai";
-import { atomWithRefresh } from "jotai/utils";
+import { LngLat } from "mapbox-gl";
 
-export const cacheModeAtom = atomWithHash<MapCachePriority>(
-  "map-cache-mode",
-  MapCachePriority.CacheThenNetwork,
-  {
-    serialize: (value) => value.toString(),
-    deserialize: (value) => {
-      if (value == null) {
-        return MapCachePriority.CacheThenNetwork;
-      }
-      return value as MapCachePriority;
-    },
-  },
-);
+// TODO: move this function to a shared library
 
-export const cacheURLAtom = atom(import.meta.env.VITE_CACHE_URL);
+type ResultType =
+  | "country"
+  | "region"
+  | "postcode"
+  | "district"
+  | "place"
+  | "locality"
+  | "neighborhood"
+  | "address"
+  | "poi";
 
-export const cacheDataAtom = atomWithRefresh(async (get) => {
-  const cacheURL = get(cacheURLAtom);
-  const res = await fetch(cacheURL + "/regions");
-  if (!res.ok) {
-    throw new Error(`Failed to fetch cache regions: ${res.statusText}`);
+function getTypesForZoom(zoom: number): ResultType[] | null {
+  const types: ResultType[] = ["country"];
+  if (zoom > 7) {
+    types.push("region", "country");
   }
-  const data = await res.json();
-  return data as CacheData;
-});
-
-export const cacheRegionsGeoJSONAtom = atom(async (get) => {
-  const cacheData = await get(cacheDataAtom);
-  const regions = cacheData?.regions;
-
-  return {
-    type: "FeatureCollection",
-    features: regions
-      .filter((d) => !d.global)
-      .map((region) => ({
-        type: "Feature",
-        id: region.id,
-        properties: {
-          name: region.description.name,
-          description: region.description,
-        },
-        geometry: region.definition.geometry,
-      })),
-  };
-});
-
-export const requestTransformerAtom = atom((get) => {
-  const cacheMode = get(cacheModeAtom);
-  const cacheURL = get(cacheURLAtom);
-  return (request, type) => {
-    // Extract the domain from the request URL
-    const url = new URL(request);
-    const domain = url.hostname;
-    const scheme = url.protocol;
-
-    const baseURL = scheme + "//" + domain;
-
-    const newPath = request.replace(baseURL, cacheURL + "/tiles");
-
-    const newURL = new URL(newPath);
-
-    // Get query parameters
-    const params = new URLSearchParams(url.search);
-
-    // Add x-cache- parameters
-    params.set("x-cache-domain", domain);
-    params.set("x-cache-mode", cacheMode);
-
-    newURL.search = params.toString();
-
-    return {
-      url: newURL.toString(),
-    };
-  };
-});
-
-interface QueryStateOptions<T> {
-  defaultValue: T;
-  validValues?: T[] | null;
-  parseValue?: (value: string) => T;
-  setValue?: (value: T) => string;
+  if (zoom > 9) {
+    types.push("district");
+  }
+  if (zoom > 11) {
+    types.push("place");
+  }
+  if (zoom > 13) {
+    types.push("locality");
+  }
+  if (zoom > 14) {
+    types.push("neighborhood");
+  }
+  return types;
 }
 
-export function useQueryState<T = string>(
-  key: string,
-  options: QueryStateOptions<T> | null = null,
-): [T, (value: T) => void] {
-  // Use state that is managed by a query parameter
+export async function getNamedLocation(
+  location: LngLat,
+  zoom: number,
+  accessToken: string,
+) {
+  const baseURL = `https://api.mapbox.com/geocoding/v5/mapbox.places/${location.lng},${location.lat}.json`;
+  const types = getTypesForZoom(zoom);
 
-  const {
-    defaultValue,
-    validValues,
-    parseValue = (d) => d,
-    setValue = (d) => d,
-  } = options ?? {};
+  const url =
+    baseURL +
+    "?" +
+    new URLSearchParams({
+      access_token: accessToken,
+      types: types?.join(","),
+    } as Record<string, string>);
 
-  const [state, setState] = useState(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const value = urlParams.get(key);
-    if (value == null) {
-      return defaultValue;
-    }
-    // Parse the value if a parse function is provided
-    let val = parseValue(value);
-    if (validValues) {
-      // Check if the value is valid
-      if (!validValues.includes(val)) {
-        console.warn(`Invalid value for ${key}: ${val}`);
-        val = null;
-      }
-    }
-    return val ?? defaultValue;
-  });
-
-  // Update the URL when the state changes
-  const setQueryState = (newValue: T) => {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (newValue === null || newValue == defaultValue) {
-      urlParams.delete(key);
-    } else {
-      urlParams.set(key, setValue(newValue));
-    }
-    // If URL params are empty, remove the '?' from the URL
-    let params = urlParams.toString();
-    if (params.length > 0) {
-      params = "?" + params;
-    }
-    window.history.replaceState(null, "", window.location.pathname + params);
-    setState(newValue);
-  };
-
-  return [state, setQueryState];
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch named location: ${response.statusText}`);
+  }
+  const data = await response.json();
+  const result = data.features[0];
+  return result?.place_name;
 }

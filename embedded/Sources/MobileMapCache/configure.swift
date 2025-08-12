@@ -12,6 +12,10 @@ struct ConfigurationKey: StorageKey {
   typealias Value = AppConfig
 }
 
+struct DownloadTaskStoreKey: StorageKey {
+  typealias Value = [Int: Task<Void, any Error>]
+}
+
 extension Application {
   var config: AppConfig {
     get throws {
@@ -19,6 +23,26 @@ extension Application {
         throw RuntimeError.configurationError("AppConfig not set in application storage")
       }
       return res
+    }
+  }
+  
+  var taskStore: [Int: Task<Void, any Error>] {
+    get {
+      self.storage.get(DownloadTaskStoreKey.self) ?? [:]
+    }
+    set {
+      self.storage.set(DownloadTaskStoreKey.self, to: newValue)
+    }
+  }
+  
+  func addDownloadTask(id: Int? = nil, task: Task<Void, any Error>) {
+    let id = self.taskStore.count + 1
+    self.taskStore[id] = task
+  }
+  
+  func cancelDownloadTask(id: Int) {
+    if let task = self.taskStore.removeValue(forKey: id) {
+      task.cancel()
     }
   }
 }
