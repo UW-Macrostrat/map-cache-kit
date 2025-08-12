@@ -21,10 +21,12 @@ import {
   mapPositionAtom,
 } from "./state.ts";
 import { useMapStyleOperator } from "@macrostrat/mapbox-react";
-import { setGeoJSON } from "@macrostrat/mapbox-utils";
+import { mergeStyles, setGeoJSON } from "@macrostrat/mapbox-utils";
 import { bbox } from "@turf/bbox";
 import { CachePanelView } from "./cache-list";
 import { type Atom, atom, useAtom } from "jotai";
+import { baseMapStyles, geologyStyleFragment } from "./cache-list/map-style";
+import type { MapCacheLayer } from "./cache-list/types.ts";
 
 const h = hyper.styled(styles);
 
@@ -37,13 +39,24 @@ const refreshForceAtom: Atom<number> = atom((get) => {
   return Math.random();
 });
 
+const styleAtom = atom((get) => {
+  const basemap = get(basemapAtom);
+  if (basemap === "basic") {
+    return baseMapStyles.basic;
+  }
+  if (basemap === "satellite") {
+    return baseMapStyles.satellite;
+  }
+
+  return mergeStyles(baseMapStyles.basic, geologyStyleFragment);
+});
+
 export default function App() {
   const [transformRequest] = useAtom(requestTransformerAtom);
   const [basemap, setBasemap] = useAtom(basemapAtom);
   const [refreshCounter] = useAtom(refreshForceAtom);
 
-  const basicStyle = useBasicMapStyle();
-  const style = basemap === "basic" ? basicStyle : satelliteStyle;
+  const [style] = useAtom(styleAtom);
 
   const detailPanel = h(
     DetailsPanel,
@@ -114,9 +127,10 @@ export default function App() {
               options: [
                 { label: "Basic", value: "basic" },
                 { label: "Satellite", value: "satellite" },
+                { label: "Geology", value: "bedrock" },
               ],
               onValueChange: (value) => {
-                setBasemap(value as "basic" | "satellite");
+                setBasemap(value as MapCacheLayer);
               },
               value: basemap,
             }),

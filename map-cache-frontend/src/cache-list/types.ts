@@ -6,8 +6,8 @@ export enum MapCachePriority {
   CacheThenNetwork = "cache-then-network",
 }
 
-enum MapCacheLayer {
-  Basemap = "basemap",
+export enum MapCacheLayer {
+  Basic = "basic",
   Satellite = "satellite",
   Bedrock = "bedrock",
 }

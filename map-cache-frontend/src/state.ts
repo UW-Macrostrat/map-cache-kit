@@ -1,7 +1,11 @@
-import { type CacheData, MapCachePriority } from "./cache-list/types.ts";
+import {
+  type CacheData,
+  MapCacheLayer,
+  MapCachePriority,
+} from "./cache-list/types.ts";
 import { atomWithHash } from "jotai-location";
 import { atom } from "jotai";
-import { atomWithRefresh } from "jotai/utils";
+import { atomWithRefresh, RESET } from "jotai/utils";
 import type { Map } from "mapbox-gl";
 import type { MapPosition } from "@macrostrat/mapbox-utils";
 import { bboxPolygon } from "@turf/bbox-polygon";
@@ -21,17 +25,21 @@ export const cacheModeAtom = atomWithHash<MapCachePriority>(
   },
 );
 
-type BasemapType = "basic" | "satellite";
-
-export const basemapAtom = atomWithHash<BasemapType>("basemap", "basic", {
-  serialize: (value) => value,
-  deserialize: (value): BasemapType => {
-    if (value === "basic" || value === "satellite") {
-      return value as BasemapType;
-    }
-    return "basic"; // Default to basic if invalid
+export const basemapAtom = atomWithHash<MapCacheLayer>(
+  "basemap",
+  MapCacheLayer.Basic,
+  {
+    serialize: (value) => {
+      return value;
+    },
+    deserialize: (value): MapCacheLayer => {
+      if (value === "basic" || value === "satellite" || value === "bedrock") {
+        return value as MapCacheLayer;
+      }
+      return "basic"; // Default to basic if invalid
+    },
   },
-});
+);
 
 export const cacheURLAtom = atom(import.meta.env.VITE_CACHE_URL);
 export const mapboxTokenAtom = atom(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);

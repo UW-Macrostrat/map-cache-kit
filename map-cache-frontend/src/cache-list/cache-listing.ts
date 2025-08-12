@@ -211,19 +211,20 @@ function CacheItem({
     dispatch(action);
   };
 
+  const onClick = () => {
+    if (map == null) return;
+    const bounds = bbox(cache.definition.geometry);
+    const _bbox: LngLatBoundsLike = [
+      [bounds[0], bounds[1]],
+      [bounds[2], bounds[3]],
+    ];
+    map.fitBounds(_bbox, { duration: 500 });
+  };
+
   return m(
     "div.ion-card.cache-card",
     {
       disabled: uiState == "deleting",
-      onClick() {
-        if (map == null) return;
-        const bounds = bbox(cache.definition.geometry);
-        const _bbox: LngLatBoundsLike = [
-          [bounds[0], bounds[1]],
-          [bounds[2], bounds[3]],
-        ];
-        map.fitBounds(_bbox, { duration: 500 });
-      },
     },
     [
       m("div.flex-row", [
@@ -247,9 +248,7 @@ function CacheItem({
         ]),
         m(_Map, {
           geometry: cache.definition.geometry,
-          onClick() {
-            dispatch({ type: "view", cacheId: cache.id });
-          },
+          onClick,
         }),
       ]),
     ],

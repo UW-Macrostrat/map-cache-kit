@@ -1,8 +1,6 @@
 import satellite from "./style-jczaplewski-cl51esfdm000e14mq51erype3-satellite.json";
 import basic from "./style-jczaplewski-cl3w3bdai001f14ob27ckmpxz-basic.json";
 
-import chroma from "chroma-js";
-
 export interface MapSourceConfig {
   type?: string;
   tiles?: string[];
@@ -31,66 +29,6 @@ export const baseMapStyles = {
 };
 
 export const mapStyleVersion = "1.0";
-
-const baseColor = "#868aa2";
-const endColor = "#212435";
-
-const scale = chroma.scale([baseColor, endColor]).mode("hsl");
-
-const _circleColor = (step) => {
-  return scale(step / _steps.length);
-};
-
-const circleColor = (step) => _circleColor(step).hex();
-const _steps = [1, 20, 100, 200, 500];
-
-function steps(fn: (step: number) => any) {
-  let res: any[] = ["step", ["coalesce", ["get", "point_count"], 0]];
-
-  let ix = 0;
-  for (const step of _steps) {
-    res.push(fn(ix), step);
-    ix++;
-  }
-  res.push(fn(ix));
-  return res;
-}
-
-const textColor = (step) => {
-  return chroma(baseColor).brighten(2).hex();
-};
-
-const clusterLayers = [
-  {
-    id: "checkins",
-    type: "circle",
-    source: "checkin-clusters",
-    paint: {
-      "circle-radius": steps((step) => 8 + step * 2),
-      "circle-color": steps(circleColor),
-      "circle-stroke-width": 3,
-      "circle-stroke-color": steps((step) => {
-        const c = _circleColor(step);
-        return c.brighten(0.5).hex();
-      }),
-      "circle-stroke-opacity": 0.5,
-    },
-  },
-  {
-    id: "cluster-count",
-    type: "symbol",
-    source: "checkin-clusters",
-    layout: {
-      "text-field": "{point_count_abbreviated}",
-      "text-font": ["Merriweather Regular"],
-      "text-size": 12,
-      "text-allow-overlap": true,
-    },
-    paint: {
-      "text-color": steps(textColor),
-    },
-  },
-];
 
 export const burwellSource = {
   type: "vector",
@@ -705,84 +643,11 @@ export const Layers = [
       "line-opacity": 1,
     },
   },
-  /* {
-        id: 'checkins',
-        type: 'symbol',
-        source: 'checkins',
-        layout: {
-            "icon-size": 0.55,
-            "icon-image": "pin", // should be pin-grey
-            // FML. Removing this will break the querying of overlapping checkins!!!
-            'icon-allow-overlap': true
-        },
-        paint: {
-            'icon-opacity': 0
-        }
-    }, */
-
-  ...clusterLayers,
-
-  {
-    id: "infoMarker",
-    type: "symbol",
-    source: "info_marker",
-    layout: {
-      "icon-size": 0.65,
-      "icon-image": "pin",
-      "icon-offset": [0, -28],
-      visibility: "none",
-      "icon-allow-overlap": true,
-    },
-  },
-  {
-    id: "checkin",
-    type: "symbol",
-    source: "checkin",
-    layout: {
-      "icon-size": 0.55,
-      "icon-image": "pin",
-      "icon-offset": [0, -26],
-      "icon-allow-overlap": true,
-    },
-  },
-  {
-    id: "observations",
-    type: "symbol",
-    source: "observations",
-    layout: {
-      "icon-size": 0.45,
-      "icon-image": "pin-grey",
-      "icon-offset": [0, -26],
-      "icon-allow-overlap": true,
-    },
-  },
-  {
-    id: "origLocation",
-    type: "symbol",
-    source: "orig-location",
-    layout: {
-      "icon-size": 1.75,
-      "icon-image": "triangle-15",
-      "icon-allow-overlap": true,
-    },
-  },
-  {
-    id: "adjustLocation",
-    type: "symbol",
-    source: "adjust-location",
-    layout: {
-      "icon-size": 0.65,
-      "icon-image": "pin",
-      "icon-offset": [0, -28],
-      "icon-allow-overlap": true,
-    },
-  },
 ];
 
-export const Categories = [
-  [500, "#08519c"],
-  [200, "#3182bd"],
-  [100, "#6baed6"],
-  [20, "#bdd7e7"],
-  [0, "#eff3ff"],
-];
+export const geologyStyleFragment = {
+  sources: Sources,
+  layers: Layers,
+  version: 8 as 8,
+  name: "rockd-geology",
+};
