@@ -317,7 +317,7 @@ struct CacheRegionsController: RouteCollection {
     let task = Task.detached {
       try await self.downloadRegionAssets(
         app: app,
-        region: region
+        region: region,
         styles: styles
       )
     }
@@ -392,10 +392,10 @@ struct CacheRegionsController: RouteCollection {
     }
     
     try await db.raw(
-      "DELETE FROM regions_resources WHERE region_id = \(bind: id)"
+      "DELETE FROM region_resources WHERE region_id = \(bind: id)"
     ).run()
     try await db.raw(
-      "DELETE FROM regions_tiles WHERE region_id = \(bind: id)"
+      "DELETE FROM region_tiles WHERE region_id = \(bind: id)"
     ).run()
     try await db.raw(
       "DELETE FROM regions WHERE id = \(bind: id)"

@@ -1,4 +1,4 @@
-import type { GeoJSON } from "geojson";
+import * as mapboxgl from "mapbox-gl";
 
 export enum MapCachePriority {
   Cache = "cache",
@@ -10,6 +10,19 @@ export enum MapCacheLayer {
   Basic = "basic",
   Satellite = "satellite",
   Bedrock = "bedrock",
+}
+
+type StyleDefinition = Partial<mapboxgl.StyleSpecification> | string;
+
+export interface CacheCreationInfo {
+  /** Information for modern style cache creation */
+  min_zoom: number;
+  max_zoom: number;
+  geometry: GeoJSON.Geometry;
+  pixel_ratio: number;
+  styles: StyleDefinition[];
+  name: string;
+  layers: string[];
 }
 
 export interface CacheCreationData<Metadata extends object = {}> {
@@ -27,8 +40,6 @@ export interface RockdCacheMetadata {
   layers: MapCacheLayer[];
   styleVersion: string;
 }
-
-export type RockdCacheCreationData = CacheCreationData<RockdCacheMetadata>;
 
 export interface ResourceInfo {
   tile_count: number;

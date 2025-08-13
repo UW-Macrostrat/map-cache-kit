@@ -11,7 +11,7 @@ import styles from "./App.module.sass";
 import "@macrostrat/style-system/dist/style-system.css";
 import "@blueprintjs/core/lib/css/blueprint.css";
 import { FormGroup, SegmentedControl } from "@blueprintjs/core";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import {
   basemapAtom,
   cacheRegionsGeoJSONAtom,

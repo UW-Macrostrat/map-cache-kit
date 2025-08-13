@@ -28,6 +28,8 @@ import {
   type CacheFormData,
   newCacheDataAtom,
   cacheLayersAtom,
+  useCacheCreateCallback,
+  useCacheDeleteCallback,
 } from "../state.ts";
 import { useAtom } from "jotai";
 import { bbox } from "@turf/bbox";
@@ -80,42 +82,12 @@ function CacheList({ caches, dispatch }: { caches: MapCacheListing[] }) {
   ]);
 }
 
-function synthesizeCacheCreationRequest(
-  data: CacheFormData,
-): CacheCreationData {
-  const { name, area, ...layers } = data;
-
-  return {
-    minZoom: area.properties.minZoom,
-    maxZoom: area.properties.maxZoom,
-    geometry: area.geometry,
-    styleURL: "local://test",
-    metadata: {
-      name,
-      created: new Date().toISOString(),
-      updated: new Date().toISOString(),
-      layers: Object.keys(layers).filter((key) => layers[key]),
-      styleVersion: "1.0.0",
-    },
-  };
-}
-
-export async function createCache(data: CacheFormData) {
-  // Post to the cache API to create a new cache
-  const response = await fetch(cacheAPIBaseURL + "/regions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(synthesizeCacheCreationRequest(data)),
-  });
-  return response.json();
-}
-
 function NewCacheForm() {
   const [showForm, setShowForm] = useAtom(showCacheFormAtom);
   const [cacheData] = useAtom(newCacheDataAtom);
   const [cacheLayers, setCacheLayers] = useAtom(cacheLayersAtom);
+
+  const onClick = useCacheCreateCallback();
 
   if (!showForm) {
     return m(
@@ -153,12 +125,7 @@ function NewCacheForm() {
       {
         icon: "check",
         intent: "primary",
-        onClick() {
-          createCache(cacheData);
-          setShowForm(false);
-          // Trigger cache creation
-          // dispatch({ type: 'create', data: cacheData });
-        },
+        onClick,
       },
       "Create cache",
     ),
@@ -187,7 +154,6 @@ function CacheItem({
 }) {
   const isDownloading = cache.offlineStatus?.downloadState == "active";
   const [uiState, setUIState] = useState<CacheUIState>();
-
   const isGlobal = isGlobalCache(cache);
 
   const [map] = useAtom(mapAtom);
@@ -348,13 +314,8 @@ function CacheStatus({ cache }) {
   ]);
 }
 
-function CacheControlActionButtons({
-  dispatch,
-  cacheId,
-  isDownloading = false,
-}) {
-  const runAction = (action: CacheManagementAction["type"]) => () =>
-    dispatch({ type: action, cacheId });
+function CacheControlActionButtons({ cacheId }) {
+  const onClick = useCacheDeleteCallback(cacheId);
 
   return m("div.ion-row", { class: "ion-padding-start" }, [
     m(
@@ -362,7 +323,7 @@ function CacheControlActionButtons({
       {
         icon: "trash",
         color: "danger",
-        onClick: runAction("delete"),
+        onClick,
       },
       "Delete",
     ),

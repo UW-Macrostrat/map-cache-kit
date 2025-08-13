@@ -11,6 +11,7 @@ func routes(_ app: Application) throws {
   app.get { req async in
     return CacheSystemInfo(name: "Rockd cache system", version: "1.1.0")
   }
+  app.routes.defaultMaxBodySize = "10mb"
   
   try app.register(collection: CacheRegionsController())
   try app.register(collection: CachedTileController())
