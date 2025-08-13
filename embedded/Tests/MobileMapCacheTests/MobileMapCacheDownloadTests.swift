@@ -56,9 +56,8 @@ struct MobileMapCacheDownloadTests {
         throw RuntimeError.invalidArgument("Style excerpt not found")
       }
       
-      let styleData = try String(contentsOf: styleURL, encoding: .utf8)
-
-      let def = CacheRegionDefinition(style: .jsonData(styleData), minZoom: 0, maxZoom: 1, pixelRatio: 2, glyphsRasterization: 1, geometry: try worldPolygon())
+      let styleJSON = try JSONDecoder().decode(JSON.self, from: Data(contentsOf: styleURL))
+      let def = CacheRegionDefinition(style: .jsonData(styleJSON), minZoom: 0, maxZoom: 1, pixelRatio: 2, glyphsRasterization: 1, geometry: try worldPolygon())
       
       let regionInfo = try await getRegionAssets(with: app, using: def)
       
@@ -90,7 +89,7 @@ struct MobileMapCacheDownloadTests {
         throw RuntimeError.invalidArgument("New region is not a polygon")
       }
 
-      let styleData = try String(contentsOf: styleURL, encoding: .utf8)
+      let styleData = try JSONDecoder().decode(JSON.self, from: Data(contentsOf: styleURL))
       
       // Create a new region definition that is smaller than the existing one
       let def = CacheRegionDefinition(style: .jsonData(styleData), minZoom: 0, maxZoom: 2, pixelRatio: 2, glyphsRasterization: 1, geometry: polygon)
@@ -116,7 +115,7 @@ func downloadNewTilesForCacheRegion() async throws {
       throw RuntimeError.invalidArgument("Style excerpt not found")
     }
     
-    let styleData = try String(contentsOf: styleURL, encoding: .utf8)
+    let styleData = try JSONDecoder().decode(JSON.self, from: Data(contentsOf: styleURL))
     
     let def = CacheRegionDefinition(
       style: .jsonData(styleData),
@@ -156,7 +155,7 @@ func downloadNewTilesForCacheRegion() async throws {
       maxZoom: 1,
       pixelRatio: 2.0,
       glyphsRasterization: 1,
-      geometry: MBXCacheRegionDefinition.PolygonGeometry(
+      geometry: PolygonGeometry(
         type: "Polygon",
         coordinates: [[[-180.0, -90.0], [180.0, -90.0], [180.0, 90.0], [-180.0, 90.0], [-180.0, -90.0]]]
       )

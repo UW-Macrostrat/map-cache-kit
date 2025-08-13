@@ -35,8 +35,20 @@ import Vapor
  */
 
 enum StyleDefinition: Codable {
-  case jsonData(String)
+  case jsonData(JSON)
   case styleURL(String)
+  
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    if let json = try? container.decode(JSON.self) {
+      self = .jsonData(json)
+    } else if let url = try? container.decode(String.self) {
+      self = .styleURL(url)
+    } else {
+      throw DecodingError.dataCorruptedError(
+        in: container, debugDescription: "Invalid style definition")
+    }
+  }
 }
 
 struct CacheRegionDefinition: Codable {
@@ -401,8 +413,10 @@ func getResourcesToDownload(
 ) async throws -> RegionResourceInfo {
 
   let jsonData = try await getJSONForStyle(with: app, style: definition.style)
+  // Encode to data
+  let data = try JSONEncoder().encode(jsonData)
   // decode the style
-  let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: jsonData)
+  let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: data)
 
   let resources = try findResourcesRequestedByMapboxStyle(
     spec: styleSpec, options: ResourceFindOptions(maxCodePoint: 255))
@@ -457,13 +471,10 @@ func findResourceInDatabase(
 func getJSONForStyle(
   with app: Application,
   style: StyleDefinition
-) async throws -> Data {
+) async throws -> JSON {
   switch style {
   case .jsonData(let json):
-    guard let data = json.data(using: .utf8) else {
-      throw RuntimeError.invalidArgument("Failed to convert JSON string to Data")
-    }
-    return data
+    return json
   case .styleURL(let url):
     // Fetch the JSON from the URL
     let client = try await app.client.get(URI(string: url))
@@ -474,7 +485,8 @@ func getJSONForStyle(
     guard let data = body.getData(at: 0, length: body.readableBytes) else {
       throw RuntimeError.invalidArgument("Failed to convert response body to Data")
     }
-    return data
+    
+    return try JSONDecoder().decode(JSON.self, from: data) // validate JSON
   }
 }
 
@@ -502,8 +514,9 @@ func getCacheableTileLayersFromStyle(
   let data = try await getJSONForStyle(with: app, style: style)
 
   // Parse the JSON to extract tile URL templates
+  let d1 = try JSONEncoder().encode(data)
 
-  if let jsonObject = try? JSONSerialization.jsonObject(with: data, options: [])
+  if let jsonObject = try? JSONSerialization.jsonObject(with: d1, options: [])
     as? [String: Any],
     let sources = jsonObject["sources"] as? [String: Any]
   {

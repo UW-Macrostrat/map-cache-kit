@@ -14,6 +14,61 @@ import SwiftTileMatrix
 // definition: {"style_url":"http://localhost:50051/dynamic-styles/rockd-cache.v1.0.satellite.json","min_zoom":0.0,"max_zoom":0.0,"pixel_ratio":2.0,"glyphs_rasterization":1,"geometry":{"type":"Polygon","coordinates":[[[-180.0,-90.0],[180.0,-90.0],[180.0,90.0],[-180.0,90.0],[-180.0,-90.0]]]}}
 // description: {"layers":["satellite"],"styleVersion":"1.0","updated":"2025-01-10T05:37:00.000Z","name":"rockd-cache.v1.0.satellite","created":"2025-01-10T05:37:00.000Z"}
 
+struct CacheCreationPostInfo: Content {
+  /** Information for modern style cache creation */
+  let minZoom: Double
+  let maxZoom: Double
+  let pixelRatio: Double
+  let geometry: PolygonGeometry
+  let styles: [StyleDefinition]
+  let name: String
+  let layers: [String]
+  
+  enum CodingKeys: String, CodingKey {
+    case minZoom = "min_zoom"
+    case maxZoom = "max_zoom"
+    case pixelRatio = "pixel_ratio"
+    case geometry
+    case styles
+    case name
+    case layers
+  }
+  
+  func synthesizeLegacyDefinition() -> MBXCacheRegion {
+    let def = MBXCacheRegionDefinition(
+      styleURL: "local://test",
+      minZoom: minZoom,
+      maxZoom: maxZoom,
+      pixelRatio: pixelRatio,
+      glyphsRasterization: 0, // Default value for legacy
+      geometry: geometry
+    )
+    
+    let now = Date().ISO8601Format()
+    
+    let desc = MBXCacheRegionDescription(
+      layers: layers,
+      styleVersion: styleCacheVersion,
+      updated: now,
+      name: name,
+      created: now
+    )
+    
+    return MBXCacheRegion(
+      definition: def,
+      description: desc
+    )
+  }
+}
+
+struct PolygonGeometry: Content {
+  let type: String
+  let coordinates: [[[Double]]]
+}
+
+// Version for new style cache definition
+let styleCacheVersion = "1.0"
+
 struct MBXCacheRegionDefinition: Content {
   /** Cache region definition for a Mapbox Maps SDK cache */
   let styleURL: String
@@ -22,11 +77,6 @@ struct MBXCacheRegionDefinition: Content {
   let pixelRatio: Double
   let glyphsRasterization: Int
   let geometry: PolygonGeometry
-
-  struct PolygonGeometry: Content {
-    let type: String
-    let coordinates: [[[Double]]]
-  }
 
   enum CodingKeys: String, CodingKey {
     case styleURL = "style_url"
@@ -78,8 +128,6 @@ struct MBXCacheRegion: Content {
           .map(webMercatorToEpsg4236)
       ).envelope()
       let tmsArea = try tmsEnvelope4326.area()
-      
-      print(self.description.name, area, tmsArea)
       
       if area > tmsArea * 0.999 && area < tmsArea * 1.25 {
         return true

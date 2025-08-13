@@ -1,6 +1,6 @@
 import { Sources, Layers, mapStyleVersion } from "~/components/map/map-style";
 import { MapCacheLayer } from "../types";
-import { mergeStyles, getMapboxStyle } from "@macrostrat/mapbox-utils";
+import { mergeStyles } from "@macrostrat/mapbox-utils";
 import satellite from "./style-jczaplewski-cl51esfdm000e14mq51erype3-satellite.json";
 import basic from "./style-jczaplewski-cl3w3bdai001f14ob27ckmpxz-basic.json";
 export { mapStyleVersion };

@@ -135,7 +135,9 @@ struct MobileMapCacheTests {
       }
       """
       
-      let styleDefinition = StyleDefinition.jsonData(styleJSON)
+      let jsonData = try JSONDecoder().decode(JSON.self, from: Data(styleJSON.utf8))
+      
+      let styleDefinition = StyleDefinition.jsonData(jsonData)
       
       let definition = CacheRegionDefinition(
         style: styleDefinition,
@@ -155,6 +157,7 @@ struct MobileMapCacheTests {
       
     }
   }
+
   
   @Test("Find existing tiles for Mapbox style")
   func findExistingTilesForMapboxStyle() async throws {
@@ -162,14 +165,7 @@ struct MobileMapCacheTests {
       // Find existing tiles for a mapbox style that uses tilejson files to define the source
       let cacheRegion = try! Polygon(wkt: "POLYGON((-10 -10, -10 10, 10 10, 10 -10, -10 -10))")
       
-      // Get style excerpt
-      guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "json") else {
-        throw RuntimeError.invalidArgument("Style excerpt not found")
-      }
-      // Get JSON as a string
-      let styleJSON = try String(contentsOf: styleURL, encoding: .utf8)
-      
-      let styleDefinition = StyleDefinition.jsonData(styleJSON)
+      let styleDefinition = try getSatelliteStyle()
       
       let definition = CacheRegionDefinition(
         style: styleDefinition,
@@ -188,6 +184,20 @@ struct MobileMapCacheTests {
       #expect(Double(res.totalSizeOfTilesDownloaded) > 1e5)
       
     }
+  }
+  
+  func getSatelliteStyle() throws -> StyleDefinition {
+    guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "json") else {
+      throw RuntimeError.invalidArgument("Style excerpt not found")
+    }
+    // Get JSON as a string
+    let styleJSON = try JSONDecoder().decode(
+      JSON.self,
+      from: Data(contentsOf: styleURL)
+    )
+    
+    let styleDefinition = StyleDefinition.jsonData(styleJSON)
+    return styleDefinition
   }
   
   @Test("Find fonts requested by a Mapbox style")
@@ -312,7 +322,8 @@ struct MobileMapCacheNewDatabaseTests {
           }
       }
       """
-      let styleDefinition = StyleDefinition.jsonData(styleJSON)
+      let data = try JSONDecoder().decode(JSON.self, from: Data(styleJSON.utf8))
+      let styleDefinition = StyleDefinition.jsonData(data)
       let defs = try await getCacheableTileLayersFromStyle(with: app, style: styleDefinition)
       
       #expect(defs.count == 1)

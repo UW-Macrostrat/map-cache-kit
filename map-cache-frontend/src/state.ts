@@ -1,20 +1,18 @@
+import { atom } from "jotai";
+import { atomWithHash } from "jotai-location";
+import { atomWithRefresh } from "jotai/utils";
+import type { Feature, Polygon } from "geojson";
+import { bboxPolygon } from "@turf/bbox-polygon";
+import type { MapPosition } from "@macrostrat/mapbox-utils";
+import type { LngLat, Map, StyleSpecification } from "mapbox-gl";
+import { getMapboxStyle, mergeStyles } from "@macrostrat/mapbox-utils";
 import {
   type CacheData,
   MapCacheLayer,
   MapCachePriority,
 } from "./cache-list/types.ts";
-import { atomWithHash } from "jotai-location";
-import { atom } from "jotai";
-import { atomWithRefresh } from "jotai/utils";
-import type { Map } from "mapbox-gl";
-import type { MapPosition } from "@macrostrat/mapbox-utils";
-import { bboxPolygon } from "@turf/bbox-polygon";
-import type { Feature, Polygon } from "geojson";
-import type { LngLat } from "mapbox-gl";
 import { getNamedLocation } from "./utils.ts";
-import { getMapboxStyle, mergeStyles } from "@macrostrat/mapbox-utils";
 import { geologyStyleFragment } from "./cache-list/map-style";
-import type { StyleSpecification } from "mapbox-gl";
 
 export const cacheModeAtom = atomWithHash<MapCachePriority>(
   "map-cache-mode",
@@ -206,16 +204,16 @@ export const newCacheDataAtom = atom<CacheFormData>(async (get) => {
 
 const cacheStyleJSONAtom = atom<Promise<StyleSpecification[]>>((get) => {
   /** A list of style JSON files that can be used to define the cache */
-  const geology = geologyStyleFragment;
+  const geology = geologyStyleFragment as StyleSpecification;
 
   const layers = get(cacheLayersAtom);
   const styles: StyleSpecification[] = [];
   if (layers.basemap) {
-    const basic = get(basicStyleAtom);
+    const basic = get(basicStyleAtom) as StyleSpecification;
     styles.push(basic);
   }
   if (layers.satellite) {
-    const satellite = get(satelliteStyleAtom);
+    const satellite = get(satelliteStyleAtom) as StyleSpecification;
     styles.push(satellite);
   }
   if (layers.bedrock) {

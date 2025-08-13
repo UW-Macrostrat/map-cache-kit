@@ -1,6 +1,6 @@
 import h from "@macrostrat/hyper";
 import { forwardRef, useEffect, useRef, useState } from "react";
-import { Map } from "mapbox-gl";
+import { Map, type StyleSpecification } from "mapbox-gl";
 import { baseMapStyles } from "./map-style";
 import { mergeStyles } from "@macrostrat/mapbox-utils";
 import { boundsForPolygon } from "./utils";
@@ -46,42 +46,44 @@ function setupMap(
 
   let bounds = boundsForPolygon(data);
 
+  const style = mergeStyles(baseMapStyles.basic, {
+    sources: {
+      cacheArea: {
+        type: "geojson",
+        data,
+      },
+    },
+    layers: [
+      {
+        id: "polygon",
+        type: "fill",
+        source: "cacheArea", // reference the data source
+        layout: {},
+        paint: {
+          "fill-color": "#0080ff", // blue color fill
+          "fill-opacity": 0.2,
+        },
+      },
+      // Add a black outline around the polygon.
+      {
+        id: "outline",
+        type: "line",
+        source: "cacheArea",
+        layout: {},
+        paint: {
+          "line-color": "#000",
+          "line-width": 3,
+        },
+      },
+    ],
+  }) as StyleSpecification
+
   const map = new Map({
     accessToken: mapboxToken,
     container: el,
     bounds,
     fitBoundsOptions: { padding: 20 },
-    style: mergeStyles(baseMapStyles.basic, {
-      sources: {
-        cacheArea: {
-          type: "geojson",
-          data,
-        },
-      },
-      layers: [
-        {
-          id: "polygon",
-          type: "fill",
-          source: "cacheArea", // reference the data source
-          layout: {},
-          paint: {
-            "fill-color": "#0080ff", // blue color fill
-            "fill-opacity": 0.2,
-          },
-        },
-        // Add a black outline around the polygon.
-        {
-          id: "outline",
-          type: "line",
-          source: "cacheArea",
-          layout: {},
-          paint: {
-            "line-color": "#000",
-            "line-width": 3,
-          },
-        },
-      ],
-    }),
+    style,
     // causes pan & zoom handlers not to be applied, similar to
     // .dragging.disable() and other handler .disable() funtions in Leaflet.
     interactive: false,
