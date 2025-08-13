@@ -281,7 +281,7 @@ struct CacheRegionsController: RouteCollection {
     }
     
     let region = try await createRegion(db, region: regionCandidate)
-    self.startRegionDownload(req.application, region: region)
+    self.startRegionDownload(req.application, region: region, styles: cacheInfo.styles)
 
     return region
   }
@@ -301,11 +301,14 @@ struct CacheRegionsController: RouteCollection {
     ).first(decoding: MBXCacheRegion.self) else {
       throw Abort(.notFound, reason: "Region not found")
     }
-    self.startRegionDownload(req.application, region: region)
+    
+    throw Abort(.notImplemented, reason: "Region download without style post not implemented yet")
+    
+    self.startRegionDownload(req.application, region: region, styles: [])
     return .ok
   }
   
-  func startRegionDownload(_ app: Application, region: MBXCacheRegion) {
+  func startRegionDownload(_ app: Application, region: MBXCacheRegion, styles: [StyleDefinition]) {
     guard let regionID = region.id else {
       app.logger.error("Region ID is missing")
       return
@@ -315,6 +318,7 @@ struct CacheRegionsController: RouteCollection {
       try await self.downloadRegionAssets(
         app: app,
         region: region
+        styles: styles
       )
     }
     app.addDownloadTask(id: regionID, task: task)
@@ -329,7 +333,7 @@ struct CacheRegionsController: RouteCollection {
     return .noContent
   }
   
-  func downloadRegionAssets(app: Application, region: MBXCacheRegion) async throws {
+  func downloadRegionAssets(app: Application, region: MBXCacheRegion, styles: [StyleDefinition]) async throws {
     app.logger.info("Downloading assets for region: \(region.definition)")
     
     guard let regionID = region.id else {
@@ -339,7 +343,7 @@ struct CacheRegionsController: RouteCollection {
     let encoder = JSONEncoder()
     let errorJSON = try encoder.encode(["error": true])
     
-    let regionDefinition = try region.asRegionDefinition(styles: [])
+    let regionDefinition = try region.asRegionDefinition(styles: styles)
     
     _ = try await MobileMapCache.downloadRegionAssets(with: app, using: regionDefinition, regionId: regionID) { progress in
       app.logger
