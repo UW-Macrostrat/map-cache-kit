@@ -27,6 +27,20 @@ fileprivate func withApp(cacheDatabase: SQLiteConfiguration, _ test: (Applicatio
   try await app.asyncShutdown()
 }
 
+func getSatelliteStyle() throws -> StyleDefinition {
+  guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "json") else {
+    throw RuntimeError.invalidArgument("Style excerpt not found")
+  }
+  // Get JSON as a string
+  let styleJSON = try JSONDecoder().decode(
+    JSON.self,
+    from: Data(contentsOf: styleURL)
+  )
+  
+  let styleDefinition = StyleDefinition.jsonData(styleJSON)
+  return styleDefinition
+}
+
 extension TileCoord: @unchecked Sendable {
   
 }
@@ -140,7 +154,7 @@ struct MobileMapCacheTests {
       let styleDefinition = StyleDefinition.jsonData(jsonData)
       
       let definition = CacheRegionDefinition(
-        style: styleDefinition,
+        styles: [styleDefinition],
         minZoom: 0,
         maxZoom: 1,
         pixelRatio: 1,
@@ -168,7 +182,7 @@ struct MobileMapCacheTests {
       let styleDefinition = try getSatelliteStyle()
       
       let definition = CacheRegionDefinition(
-        style: styleDefinition,
+        styles: [styleDefinition],
         minZoom: 0,
         maxZoom: 1,
         pixelRatio: 1,
@@ -184,20 +198,6 @@ struct MobileMapCacheTests {
       #expect(Double(res.totalSizeOfTilesDownloaded) > 1e5)
       
     }
-  }
-  
-  func getSatelliteStyle() throws -> StyleDefinition {
-    guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "json") else {
-      throw RuntimeError.invalidArgument("Style excerpt not found")
-    }
-    // Get JSON as a string
-    let styleJSON = try JSONDecoder().decode(
-      JSON.self,
-      from: Data(contentsOf: styleURL)
-    )
-    
-    let styleDefinition = StyleDefinition.jsonData(styleJSON)
-    return styleDefinition
   }
   
   @Test("Find fonts requested by a Mapbox style")

@@ -11,29 +11,6 @@ import GEOSwift
 import SwiftTileMatrix
 import Vapor
 
-/**
- Frontend typescript types
-
- export interface CacheCreationData<Metadata extends object = {}> {
- minZoom: number;
- maxZoom: number;
- geometry: GeoJSON.Geometry;
- styleURL: string;
- metadata: Metadata;
- }
-
- export interface OfflineRegionStatus {
- completedResourceCount: number;
- completedResourceSize: number;
- requiredResourceCount: number;
- completedTileCount: number;
- completedTileSize: number;
- requiredTileCount: number;
- downloadState: "active" | "inactive";
- requiredResourceCountIsPrecise: boolean;
- }
- */
-
 enum StyleDefinition: Codable {
   case jsonData(JSON)
   case styleURL(String)
@@ -52,7 +29,7 @@ enum StyleDefinition: Codable {
 }
 
 struct CacheRegionDefinition: Codable {
-  var style: StyleDefinition
+  let styles: [StyleDefinition]
   var minZoom: Int
   var maxZoom: Int
   var pixelRatio: Int
@@ -60,7 +37,7 @@ struct CacheRegionDefinition: Codable {
   var geometry: Polygon
 
   enum CodingKeys: String, CodingKey {
-    case style
+    case styles
     case minZoom = "min_zoom"
     case maxZoom = "max_zoom"
     case pixelRatio = "pixel_ratio"
@@ -76,34 +53,7 @@ enum RuntimeError: Error {
   case configurationError(String)
 }
 
-func getCacheRegion(from definition: CacheRegionDefinition) async throws {
-  // Validate the definition
-  guard definition.minZoom >= 0 else {
-    throw RuntimeError.invalidArgument("Minimum zoom level must be greater than or equal to 0")
-  }
-
-  guard definition.maxZoom >= definition.minZoom else {
-    throw RuntimeError.invalidArgument(
-      "Maximum zoom level must be greater than or equal to minimum zoom level")
-  }
-
-  // Convert the geometry to a GEOSwift Polygon
-  let polygon = definition.geometry
-
-  // Figure out which sources to download
-
-  // Download font stacks, glyphs, etc.
-
-  // Get the intersecting tiles
-  let tiles = try getIntersectingTiles(
-    for: polygon.geometry, minZoom: definition.minZoom, maxZoom: definition.maxZoom
-  )
-
-  // Download tiles with rate limiting
-
-}
-
-struct CandidateTile {
+struct CandidateTile: Hashable, Equatable {
   let x: Int
   let y: Int
   let z: Int
@@ -117,8 +67,8 @@ struct RegionTileInfo {
 }
 
 struct RegionResourceInfo {
-  let resourcesToDownload: [RequestedResource]
-  let resourcesAlreadyDownloaded: [RequestedResource]
+  let resourcesToDownload: Set<RequestedResource>
+  let resourcesAlreadyDownloaded: Set<RequestedResource>
   let totalSizeOfResourcesDownloaded: Int64
 }
 
@@ -356,11 +306,15 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
     for: polygon.geometry, minZoom: definition.minZoom, maxZoom: definition.maxZoom)
 
   // Get the tile URL templates from the style definition
-  let tileLayerDefs = try await getCacheableTileLayersFromStyle(
-    with: app, style: definition.style)
+  var tileLayerDefs: Set<CacheLayerDefinition> = []
+  for style in definition.styles {
+    // Get the tile layers from the style
+    let defs = try await getCacheableTileLayersFromStyle(with: app, style: style)
+    tileLayerDefs.formUnion(defs)
+  }
 
   // Get all tiles that may need to be downloaded
-  var candidateTiles: [CandidateTile] = []
+  var candidateTiles: Set<CandidateTile> = []
 
   for tile in tiles {
     for lyr in tileLayerDefs {
@@ -369,7 +323,7 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
         continue
       }
       // Add the candidate tile
-      candidateTiles.append(
+      candidateTiles.insert(
         CandidateTile(x: tile.x, y: tile.y, z: tile.z, urlTemplate: lyr.urlTemplate))
     }
   }
@@ -411,19 +365,26 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
 func getResourcesToDownload(
   with app: Application, using definition: CacheRegionDefinition
 ) async throws -> RegionResourceInfo {
+  var resources: Set<RequestedResource> = []
 
-  let jsonData = try await getJSONForStyle(with: app, style: definition.style)
-  // Encode to data
-  let data = try JSONEncoder().encode(jsonData)
-  // decode the style
-  let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: data)
-
-  let resources = try findResourcesRequestedByMapboxStyle(
-    spec: styleSpec, options: ResourceFindOptions(maxCodePoint: 255))
+  for style in definition.styles {
+    // Get the cacheable resources from the style
+    let jsonData = try await getJSONForStyle(with: app, style: style)
+    // Encode to data
+    let data = try JSONEncoder().encode(jsonData)
+    // decode the style
+    let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: data)
+    
+    
+    let r1 = try findResourcesRequestedByMapboxStyle(
+      spec: styleSpec, options: ResourceFindOptions(maxCodePoint: 255))
+    
+    resources.formUnion(r1)
+  }
 
   // Check which resources are already downloaded
-  var resourcesToDownload: [RequestedResource] = []
-  var resourcesAlreadyDownloaded: [RequestedResource] = []
+  var resourcesToDownload: Set<RequestedResource> = []
+  var resourcesAlreadyDownloaded: Set<RequestedResource> = []
   var totalSizeOfResourcesDownloaded: Int64 = 0
 
   for resource in resources {
@@ -433,10 +394,10 @@ func getResourcesToDownload(
     {
       // Resource already exists
       totalSizeOfResourcesDownloaded += size
-      resourcesAlreadyDownloaded.append(resource)
+      resourcesAlreadyDownloaded.insert(resource)
     } else {
       // Resource needs to be downloaded
-      resourcesToDownload.append(resource)
+      resourcesToDownload.insert(resource)
     }
   }
 
@@ -499,7 +460,7 @@ enum SourceType: String, Codable {
   case video = "video"
 }
 
-struct CacheLayerDefinition {
+struct CacheLayerDefinition: Hashable, Equatable {
   let type: SourceType
   // Cache key used to store tiles in the database
   let urlTemplate: String
@@ -508,8 +469,8 @@ struct CacheLayerDefinition {
 func getCacheableTileLayersFromStyle(
   with app: Application,
   style: StyleDefinition
-) async throws -> [CacheLayerDefinition] {
-  var defs: [CacheLayerDefinition] = []
+) async throws -> Set<CacheLayerDefinition> {
+  var defs: Set<CacheLayerDefinition> = []
 
   let data = try await getJSONForStyle(with: app, style: style)
 
@@ -536,7 +497,7 @@ func getCacheableTileLayersFromStyle(
             "Expected exactly one tile URL template for source type \(sourceType), found \(tiles.count) (multiple tile URLs are not yet supported)"
           )
         }
-        defs.append(CacheLayerDefinition(type: sourceType, urlTemplate: tiles[0]))
+        defs.insert(CacheLayerDefinition(type: sourceType, urlTemplate: tiles[0]))
       } else if let urlTemplate = sourceDict["url"] as? String {
         // We are working with a tilejson file and need to infer the tile URL templates
         // We could do this by fetching and parsing the tileJSON also, but tileJSONs passed by mapbox
@@ -544,7 +505,7 @@ func getCacheableTileLayersFromStyle(
         let url: String = try inferTileURLTemplate(
           from: urlTemplate, sourceType: sourceType
         )
-        defs.append(CacheLayerDefinition(type: sourceType, urlTemplate: url))
+        defs.insert(CacheLayerDefinition(type: sourceType, urlTemplate: url))
       }
     }
   }

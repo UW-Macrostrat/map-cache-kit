@@ -52,12 +52,15 @@ struct MobileMapCacheDownloadTests {
   @Test("Ensure that no tiles need to be downloaded for existing cache definition")
   func findAllAssetsForRegion() async throws {
     try await withExistingDatabase { app in
-      guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "json") else {
-        throw RuntimeError.invalidArgument("Style excerpt not found")
-      }
-      
-      let styleJSON = try JSONDecoder().decode(JSON.self, from: Data(contentsOf: styleURL))
-      let def = CacheRegionDefinition(style: .jsonData(styleJSON), minZoom: 0, maxZoom: 1, pixelRatio: 2, glyphsRasterization: 1, geometry: try worldPolygon())
+      let satelliteStyle = try getSatelliteStyle()
+      let def = CacheRegionDefinition(
+        styles: [satelliteStyle],
+        minZoom: 0,
+        maxZoom: 1,
+        pixelRatio: 2,
+        glyphsRasterization: 1,
+        geometry: try worldPolygon()
+      )
       
       let regionInfo = try await getRegionAssets(with: app, using: def)
       
@@ -76,9 +79,7 @@ struct MobileMapCacheDownloadTests {
   @Test("Expect that tiles need to be downloaded for a new cache area (more local)")
   func findAssetsForNewRegion() async throws {
     try await withExistingDatabase { app in
-      guard let styleURL = Bundle.module.url(forResource: "satellite-style", withExtension: "json") else {
-        throw RuntimeError.invalidArgument("Style excerpt not found")
-      }
+      let styleData = try getSatelliteStyle()
       
       let topLeft = Point(x: -10.0, y: 50.0)
       let bottomRight = Point(x: 10.0, y: 40.0)
@@ -88,11 +89,9 @@ struct MobileMapCacheDownloadTests {
       guard case .polygon(let polygon) = newRegion else {
         throw RuntimeError.invalidArgument("New region is not a polygon")
       }
-
-      let styleData = try JSONDecoder().decode(JSON.self, from: Data(contentsOf: styleURL))
       
       // Create a new region definition that is smaller than the existing one
-      let def = CacheRegionDefinition(style: .jsonData(styleData), minZoom: 0, maxZoom: 2, pixelRatio: 2, glyphsRasterization: 1, geometry: polygon)
+      let def = CacheRegionDefinition(styles: [styleData], minZoom: 0, maxZoom: 2, pixelRatio: 2, glyphsRasterization: 1, geometry: polygon)
       
       // Get the assets for the new region
       let regionInfo = try await getRegionAssets(with: app, using: def)
@@ -118,7 +117,7 @@ func downloadNewTilesForCacheRegion() async throws {
     let styleData = try JSONDecoder().decode(JSON.self, from: Data(contentsOf: styleURL))
     
     let def = CacheRegionDefinition(
-      style: .jsonData(styleData),
+      styles: [.jsonData(styleData)],
       minZoom: 0,
       maxZoom: 1,
       pixelRatio: 2,

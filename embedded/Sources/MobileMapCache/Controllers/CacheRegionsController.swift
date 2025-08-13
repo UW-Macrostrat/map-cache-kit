@@ -14,7 +14,7 @@ import SwiftTileMatrix
 // definition: {"style_url":"http://localhost:50051/dynamic-styles/rockd-cache.v1.0.satellite.json","min_zoom":0.0,"max_zoom":0.0,"pixel_ratio":2.0,"glyphs_rasterization":1,"geometry":{"type":"Polygon","coordinates":[[[-180.0,-90.0],[180.0,-90.0],[180.0,90.0],[-180.0,90.0],[-180.0,-90.0]]]}}
 // description: {"layers":["satellite"],"styleVersion":"1.0","updated":"2025-01-10T05:37:00.000Z","name":"rockd-cache.v1.0.satellite","created":"2025-01-10T05:37:00.000Z"}
 
-struct CacheCreationPostInfo: Content {
+struct CacheCreationInfo: Content {
   /** Information for modern style cache creation */
   let minZoom: Double
   let maxZoom: Double
@@ -119,7 +119,7 @@ struct MBXCacheRegion: Content {
   var isGlobal: Bool {
     let tileCoord = TileCoord(0, 0, 0)
     do {
-      let geom = try self.asRegionDefinition().geometry
+      let geom = try self.getGeometry()
       let area = try geom.area()
       
       let tmsEnvelope = tileCoord.envelope
@@ -138,14 +138,18 @@ struct MBXCacheRegion: Content {
     }
   }
   
-  func asRegionDefinition() throws -> CacheRegionDefinition {
+  private func getGeometry() throws -> Polygon {
+    return Polygon(exterior: try Polygon.LinearRing(points: definition.geometry.coordinates[0].map { Point(x: $0[0], y: $0[1]) }))
+  }
+  
+  func asRegionDefinition(styles: [StyleDefinition]) throws -> CacheRegionDefinition {
     return CacheRegionDefinition(
-      style: .styleURL(definition.styleURL),
+      styles: styles,
       minZoom: Int(definition.minZoom),
       maxZoom: Int(definition.maxZoom),
       pixelRatio: Int(definition.pixelRatio),
       glyphsRasterization: definition.glyphsRasterization,
-      geometry: Polygon(exterior: try Polygon.LinearRing(points: definition.geometry.coordinates[0].map { Point(x: $0[0], y: $0[1]) }))
+      geometry: try self.getGeometry()
     )
   }
   
@@ -268,7 +272,8 @@ struct CacheRegionsController: RouteCollection {
   // Route to create a cache region
   @Sendable
   func create(req: Request) async throws -> MBXCacheRegion {
-    let regionCandidate = try req.content.decode(MBXCacheRegion.self)
+    let cacheInfo = try req.content.decode(CacheCreationInfo.self)
+    let regionCandidate = cacheInfo.synthesizeLegacyDefinition()
 
     // Save the region to the database
     guard let db = req.db as? any SQLDatabase else {
@@ -334,7 +339,7 @@ struct CacheRegionsController: RouteCollection {
     let encoder = JSONEncoder()
     let errorJSON = try encoder.encode(["error": true])
     
-    let regionDefinition = try region.asRegionDefinition()
+    let regionDefinition = try region.asRegionDefinition(styles: [])
     
     _ = try await MobileMapCache.downloadRegionAssets(with: app, using: regionDefinition, regionId: regionID) { progress in
       app.logger
