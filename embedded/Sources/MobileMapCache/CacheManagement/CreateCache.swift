@@ -125,7 +125,6 @@ func downloadRegionAssets(
     throw RuntimeError.databaseError("Database is not an SQLDatabase")
   }
 
-
   return try await withThrowingTaskGroup(of: DownloadResult.self) { taskGroup in
     for resource in assets.resources.resourcesToDownload {
       let uri = URI(string: resource.urlTemplate)
@@ -291,7 +290,13 @@ func getRegionAssets(
 
   // Get the resources to download
   let resources = try await getResourcesToDownload(with: app, using: definition)
-
+  app.logger
+    .info("""
+          Assets to download:
+          - \(resources.resourcesToDownload) resources
+          - \(tiles.tilesToDownload) tiles
+          """
+    )
   return RegionAssetsToDownload(tiles: tiles, resources: resources)
 }
 

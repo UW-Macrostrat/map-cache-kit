@@ -314,12 +314,16 @@ struct CacheRegionsController: RouteCollection {
       return
     }
     // Start the download process (will run outside of the request lifecycle)
-    let task = Task.detached {
-      try await self.downloadRegionAssets(
-        app: app,
-        region: region,
-        styles: styles
-      )
+    let task = Task {
+      do {
+        try await self.downloadRegionAssets(
+          app: app,
+          region: region,
+          styles: styles
+        )
+      } catch let err {
+        app.logger.error("\(err)")
+      }
     }
     app.addDownloadTask(id: regionID, task: task)
   }
@@ -334,8 +338,6 @@ struct CacheRegionsController: RouteCollection {
   }
   
   func downloadRegionAssets(app: Application, region: MBXCacheRegion, styles: [StyleDefinition]) async throws {
-    app.logger.info("Downloading assets for region: \(region.definition)")
-    
     guard let regionID = region.id else {
       throw RuntimeError.databaseError("Region ID is missing")
     }
@@ -344,6 +346,8 @@ struct CacheRegionsController: RouteCollection {
     let errorJSON = try encoder.encode(["error": true])
     
     let regionDefinition = try region.asRegionDefinition(styles: styles)
+   
+    app.logger.info("Starting download for region \(regionID)...")
     
     _ = try await MobileMapCache.downloadRegionAssets(with: app, using: regionDefinition, regionId: regionID) { progress in
       app.logger

@@ -20,7 +20,9 @@ let package = Package(
         // Geometry management
         .package(url: "https://github.com/GEOSwift/GEOSwift.git", from: "10.0.0"),
         // Numerical operations
-        .package(url: "https://github.com/apple/swift-numerics", from: "1.0.0")
+        .package(url: "https://github.com/apple/swift-numerics", from: "1.0.0"),
+        // Queues
+        .package(url: "https://github.com/vapor/queues.git", from: "1.17.2")
     ],
     targets: [
         .executableTarget(

@@ -1,5 +1,5 @@
 {
-  "originHash" : "21cbb4f4e4abb8fe17c67229144e403e29424670f4892ab7e0df3fea0e1b3b3e",
+  "originHash" : "f80fa0869b07faadd464f9c74d369fc81487c8bb6948b6c9f4f930504caedb12",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -80,6 +80,15 @@
       "state" : {
         "revision" : "3498e60218e6003894ff95192d756e238c01f44e",
         "version" : "4.7.1"
+      }
+    },
+    {
+      "identity" : "queues",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/vapor/queues.git",
+      "state" : {
+        "revision" : "f1764d5fef7e8ede8f3585deb63ece01ea25c2db",
+        "version" : "1.17.2"
       }
     },
     {
