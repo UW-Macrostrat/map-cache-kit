@@ -6,7 +6,6 @@ import {
   MapLoadingButton,
   MapView,
   PanelCard,
-  useBasicMapStyle,
 } from "@macrostrat/map-interface";
 import styles from "./App.module.sass";
 import "@macrostrat/style-system/dist/style-system.css";
@@ -19,36 +18,21 @@ import {
   requestTransformerAtom,
   mapAtom,
   mapPositionAtom,
+  mapStyleAtom,
 } from "./state.ts";
 import { useMapStyleOperator } from "@macrostrat/mapbox-react";
-import { mergeStyles, setGeoJSON } from "@macrostrat/mapbox-utils";
-import { bbox } from "@turf/bbox";
+import { setGeoJSON } from "@macrostrat/mapbox-utils";
 import { CachePanelView } from "./cache-list";
 import { type Atom, atom, useAtom } from "jotai";
-import { baseMapStyles, geologyStyleFragment } from "./cache-list/map-style";
 import type { MapCacheLayer } from "./cache-list/types.ts";
 
 const h = hyper.styled(styles);
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
-const satelliteStyle = "mapbox://styles/jczaplewski/cl51esfdm000e14mq51erype3";
-
 const refreshForceAtom: Atom<number> = atom((get) => {
   get(requestTransformerAtom);
   return Math.random();
-});
-
-const styleAtom = atom((get) => {
-  const basemap = get(basemapAtom);
-  if (basemap === "basic") {
-    return baseMapStyles.basic;
-  }
-  if (basemap === "satellite") {
-    return baseMapStyles.satellite;
-  }
-
-  return mergeStyles(baseMapStyles.basic, geologyStyleFragment);
 });
 
 export default function App() {
@@ -56,7 +40,7 @@ export default function App() {
   const [basemap, setBasemap] = useAtom(basemapAtom);
   const [refreshCounter] = useAtom(refreshForceAtom);
 
-  const [style] = useAtom(styleAtom);
+  const [style] = useAtom(mapStyleAtom);
 
   const detailPanel = h(
     DetailsPanel,
@@ -138,7 +122,7 @@ export default function App() {
         ]),
         transformRequest,
       },
-      [h(CacheRegionsLayer)],
+      h(CacheRegionsLayer),
     ),
   ]);
 }

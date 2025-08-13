@@ -5,11 +5,16 @@ import {
 } from "./cache-list/types.ts";
 import { atomWithHash } from "jotai-location";
 import { atom } from "jotai";
-import { atomWithRefresh, RESET } from "jotai/utils";
+import { atomWithRefresh } from "jotai/utils";
 import type { Map } from "mapbox-gl";
 import type { MapPosition } from "@macrostrat/mapbox-utils";
 import { bboxPolygon } from "@turf/bbox-polygon";
-import type { Feature } from "geojson";
+import type { Feature, Polygon } from "geojson";
+import type { LngLat } from "mapbox-gl";
+import { getNamedLocation } from "./utils.ts";
+import { getMapboxStyle, mergeStyles } from "@macrostrat/mapbox-utils";
+import { geologyStyleFragment } from "./cache-list/map-style";
+import type { StyleSpecification } from "mapbox-gl";
 
 export const cacheModeAtom = atomWithHash<MapCachePriority>(
   "map-cache-mode",
@@ -36,17 +41,17 @@ export const basemapAtom = atomWithHash<MapCacheLayer>(
       if (value === "basic" || value === "satellite" || value === "bedrock") {
         return value as MapCacheLayer;
       }
-      return "basic"; // Default to basic if invalid
+      return MapCacheLayer.Basic; // Default to basic if invalid
     },
   },
 );
 
-export const cacheURLAtom = atom(import.meta.env.VITE_CACHE_URL);
+export const cacheAPIBaseURL = import.meta.env.VITE_CACHE_URL;
+
 export const mapboxTokenAtom = atom(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
 
 export const cacheDataAtom = atomWithRefresh(async (get) => {
-  const cacheURL = get(cacheURLAtom);
-  const res = await fetch(cacheURL + "/regions");
+  const res = await fetch(cacheAPIBaseURL + "/regions");
   if (!res.ok) {
     throw new Error(`Failed to fetch cache regions: ${res.statusText}`);
   }
@@ -83,7 +88,6 @@ export const cacheRegionsGeoJSONAtom = atom(async (get) => {
 
 export const requestTransformerAtom = atom((get) => {
   const cacheMode = get(cacheModeAtom);
-  const cacheURL = get(cacheURLAtom);
   return (request, type) => {
     // Extract the domain from the request URL
     const url = new URL(request);
@@ -92,7 +96,7 @@ export const requestTransformerAtom = atom((get) => {
 
     const baseURL = scheme + "//" + domain;
 
-    const newPath = request.replace(baseURL, cacheURL + "/tiles");
+    const newPath = request.replace(baseURL, cacheAPIBaseURL + "/tiles");
 
     const newURL = new URL(newPath);
 
@@ -114,9 +118,17 @@ export const requestTransformerAtom = atom((get) => {
 export const mapAtom = atom<Map | null>(null);
 export const mapPositionAtom = atom<MapPosition | null>(null);
 
-export const showCacheFormAtom = atom(true);
+export const showCacheFormAtom = atom(false);
 
-export const candidateCacheAreaAtom = atom<Feature | null>((get) => {
+interface CacheAreaProps {
+  minZoom: number;
+  maxZoom: number;
+  candidate?: boolean;
+}
+
+export type CacheArea = Feature<Polygon, CacheAreaProps>;
+
+export const candidateCacheAreaAtom = atom<CacheArea | null>((get) => {
   const map = get(mapAtom);
   const showCacheForm = get(showCacheFormAtom);
 
@@ -124,7 +136,10 @@ export const candidateCacheAreaAtom = atom<Feature | null>((get) => {
     return null;
   }
 
+  // Need this to ensure that the map position updates
   const mapPosition = get(mapPositionAtom);
+  const minZoom = Math.min(17, Math.floor(mapPosition.target.zoom));
+  const maxZoom = Math.min(20, minZoom + 3);
 
   const bounds = map.getBounds();
 
@@ -132,7 +147,107 @@ export const candidateCacheAreaAtom = atom<Feature | null>((get) => {
   const ur = bounds.getNorthEast();
 
   return bboxPolygon([ll.lng, ll.lat, ur.lng, ur.lat], {
-    properties: { candidate: true },
+    properties: { candidate: true, minZoom, maxZoom },
     id: -1,
   });
+});
+
+/** Cache creation */
+
+interface CacheLayers {
+  bedrock: boolean;
+  basemap: boolean;
+  satellite: boolean;
+}
+
+export interface CacheFormData extends CacheLayers {
+  name: string;
+  area: CacheArea;
+}
+
+export const cacheLayersAtom = atom<CacheLayers>({
+  bedrock: true,
+  basemap: true,
+  satellite: false,
+});
+
+// Lazy atom for name API call
+export const locationNameAtom = atom<Promise<string>>(async (get, set) => {
+  const location = get(mapPositionAtom);
+  if (location == null) {
+    return "Unknown location";
+  }
+  const apiKey = get(mapboxTokenAtom);
+
+  const { zoom, ...center } = location.target;
+
+  return await getNamedLocation(center as LngLat, zoom, apiKey);
+});
+
+export const newCacheDataAtom = atom<CacheFormData>(async (get) => {
+  const showForm = get(showCacheFormAtom);
+  if (!showForm) {
+    return null;
+  }
+
+  const cacheArea = get(candidateCacheAreaAtom);
+
+  const name = await get(locationNameAtom);
+  const layers = get(cacheLayersAtom);
+  const styles = await get(cacheStyleJSONAtom);
+
+  return {
+    name,
+    area: cacheArea,
+    ...layers,
+    styles,
+  };
+});
+
+const cacheStyleJSONAtom = atom<Promise<StyleSpecification[]>>((get) => {
+  /** A list of style JSON files that can be used to define the cache */
+  const geology = geologyStyleFragment;
+
+  const layers = get(cacheLayersAtom);
+  const styles: StyleSpecification[] = [];
+  if (layers.basemap) {
+    const basic = get(basicStyleAtom);
+    styles.push(basic);
+  }
+  if (layers.satellite) {
+    const satellite = get(satelliteStyleAtom);
+    styles.push(satellite);
+  }
+  if (layers.bedrock) {
+    styles.push(geology);
+  }
+  return styles;
+});
+
+const satelliteStyle = "mapbox://styles/jczaplewski/cl51esfdm000e14mq51erype3";
+const basicStyle = "mapbox://styles/jczaplewski/cl3w3bdai001f14ob27ckmpxz";
+
+function mapboxStyleAtom(style: string): Atom<Promise<StyleSpecification>> {
+  // Atom to get a Mapbox style by its URL
+  return atom(async (get): Promise<StyleSpecification> => {
+    const access_token = get(mapboxTokenAtom);
+    return (await getMapboxStyle(style, {
+      access_token,
+    })) as StyleSpecification;
+  });
+}
+
+const satelliteStyleAtom = mapboxStyleAtom(satelliteStyle);
+const basicStyleAtom = mapboxStyleAtom(basicStyle);
+
+export const mapStyleAtom = atom(async (get) => {
+  const basemap = get(basemapAtom);
+  if (basemap === "satellite") {
+    return await get(satelliteStyleAtom);
+  }
+  const basicStyle = await get(basicStyleAtom);
+  if (basemap === "basic") {
+    return basicStyle;
+  }
+  return mergeStyles(basicStyle, geologyStyleFragment);
 });

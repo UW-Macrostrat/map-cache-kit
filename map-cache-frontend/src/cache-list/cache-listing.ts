@@ -1,12 +1,13 @@
 import m from "@macrostrat/hyper";
 import type {
+  CacheCreationData,
   MapCacheListing,
   OfflineRegionStatus,
   ResourceInfo,
 } from "./types";
 import { MapCachePriority } from "./types";
 import { CacheMap } from "./cache-map";
-import { useState, memo, Suspense } from "react";
+import { useState, memo } from "react";
 import { findGlobalCache, isGlobalCache, isStyleCache } from "./utils";
 import { useReconnectableWebSocket } from "./web-socket.ts";
 import {
@@ -22,15 +23,15 @@ import {
   cacheModeAtom,
   cacheDataAtom,
   mapAtom,
-  mapPositionAtom,
-  mapboxTokenAtom,
   showCacheFormAtom,
+  cacheAPIBaseURL,
+  type CacheFormData,
+  newCacheDataAtom,
+  cacheLayersAtom,
 } from "../state.ts";
 import { useAtom } from "jotai";
 import { bbox } from "@turf/bbox";
-import type { LngLat, LngLatBoundsLike } from "mapbox-gl";
-import { atom } from "jotai";
-import { getNamedLocation } from "../utils.ts";
+import type { LngLatBoundsLike } from "mapbox-gl";
 
 export function CachePanelView({ dispatch }) {
   const [data] = useAtom(cacheDataAtom);
@@ -79,48 +80,37 @@ function CacheList({ caches, dispatch }: { caches: MapCacheListing[] }) {
   ]);
 }
 
-interface CacheLayers {
-  bedrock: boolean;
-  basemap: boolean;
-  satellite: boolean;
-}
+function synthesizeCacheCreationRequest(
+  data: CacheFormData,
+): CacheCreationData {
+  const { name, area, ...layers } = data;
 
-interface CacheFormData extends CacheLayers {
-  name: string;
-}
-
-const cacheLayersAtom = atom<CacheLayers>({
-  bedrock: true,
-  basemap: true,
-  satellite: false,
-});
-
-// Lazy atom for name API call
-export const locationNameAtom = atom<Promise<string>>(async (get, set) => {
-  const location = get(mapPositionAtom);
-  if (location == null) {
-    return "Unknown location";
-  }
-  const apiKey = get(mapboxTokenAtom);
-
-  const { zoom, ...center } = location.target;
-
-  return await getNamedLocation(center as LngLat, zoom, apiKey);
-});
-
-const newCacheDataAtom = atom<CacheFormData>(async (get) => {
-  const showForm = get(showCacheFormAtom);
-  if (!showForm) {
-    return null;
-  }
-
-  const name = await get(locationNameAtom);
-  const layers = get(cacheLayersAtom);
   return {
-    name,
-    ...layers,
+    minZoom: area.properties.minZoom,
+    maxZoom: area.properties.maxZoom,
+    geometry: area.geometry,
+    styleURL: "local://test",
+    metadata: {
+      name,
+      created: new Date().toISOString(),
+      updated: new Date().toISOString(),
+      layers: Object.keys(layers).filter((key) => layers[key]),
+      styleVersion: "1.0.0",
+    },
   };
-});
+}
+
+export async function createCache(data: CacheFormData) {
+  // Post to the cache API to create a new cache
+  const response = await fetch(cacheAPIBaseURL + "/regions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(synthesizeCacheCreationRequest(data)),
+  });
+  return response.json();
+}
 
 function NewCacheForm() {
   const [showForm, setShowForm] = useAtom(showCacheFormAtom);
@@ -139,53 +129,51 @@ function NewCacheForm() {
     );
   }
 
-  return m(
-    Suspense,
-    m(Card, [
-      m("h3", cacheData.name),
-      m(LabeledControl, { label: "Layers" }, [
-        m("div.cache-layers-checkboxes", [
-          ["bedrock", "basemap", "satellite"].map((layer) =>
-            m(Switch, {
-              type: "checkbox",
-              label: capitalize(layer),
-              checked: cacheLayers[layer],
-              onChange: (e) => {
-                setCacheLayers({
-                  ...cacheLayers,
-                  [layer]: e.target.checked,
-                });
-              },
-            }),
-          ),
-        ]),
+  return m(Card, [
+    m("h3", cacheData.name),
+    m(LabeledControl, { label: "Layers" }, [
+      m("div.cache-layers-checkboxes", [
+        ["bedrock", "basemap", "satellite"].map((layer) =>
+          m(Switch, {
+            type: "checkbox",
+            label: capitalize(layer),
+            checked: cacheLayers[layer],
+            onChange: (e) => {
+              setCacheLayers({
+                ...cacheLayers,
+                [layer]: e.target.checked,
+              });
+            },
+          }),
+        ),
       ]),
-      m(
-        Button,
-        {
-          icon: "check",
-          intent: "primary",
-          onClick() {
-            setShowForm(false);
-            // Trigger cache creation
-            // dispatch({ type: 'create', data: cacheData });
-          },
-        },
-        "Create cache",
-      ),
-      m(
-        Button,
-        {
-          icon: "cross",
-          intent: "danger",
-          onClick() {
-            setShowForm(false);
-          },
-        },
-        "Cancel",
-      ),
     ]),
-  );
+    m(
+      Button,
+      {
+        icon: "check",
+        intent: "primary",
+        onClick() {
+          createCache(cacheData);
+          setShowForm(false);
+          // Trigger cache creation
+          // dispatch({ type: 'create', data: cacheData });
+        },
+      },
+      "Create cache",
+    ),
+    m(
+      Button,
+      {
+        icon: "cross",
+        intent: "danger",
+        onClick() {
+          setShowForm(false);
+        },
+      },
+      "Cancel",
+    ),
+  ]);
 }
 
 const _Map = memo(CacheMap);

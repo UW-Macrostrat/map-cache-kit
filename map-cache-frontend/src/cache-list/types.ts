@@ -28,6 +28,8 @@ export interface RockdCacheMetadata {
   styleVersion: string;
 }
 
+export type RockdCacheCreationData = CacheCreationData<RockdCacheMetadata>;
+
 export interface ResourceInfo {
   tile_count: number;
   tile_size: number;
@@ -56,26 +58,6 @@ export interface MapCacheListing {
   };
   assets?: ResourceInfo;
   offlineStatus?: OfflineRegionStatus;
-}
-
-export interface CacheRegionData {
-  id: string;
-  global: boolean | null;
-  description: {
-    name: string;
-    created: string;
-    updated: string;
-    styleVersion: string;
-    layers: string[];
-  };
-  definition: {
-    style_url: string;
-    pixel_ratio: number;
-    glyphs_rasterization: boolean;
-    min_zoom: number;
-    max_zoom: number;
-    geometry: Polygon;
-  };
 }
 
 export interface CacheData {
