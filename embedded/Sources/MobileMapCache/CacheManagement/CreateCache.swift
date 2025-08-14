@@ -53,20 +53,35 @@ enum RuntimeError: Error {
   case configurationError(String)
 }
 
+struct RequestedResource: Hashable, Equatable {
+  let urlTemplate: String
+  let kind: ResourceKind
+  
+  var thirdParty: Bool {
+    return !urlTemplate.hasPrefix("mapbox://")
+  }
+}
+
 struct CandidateTile: Hashable, Equatable {
   let x: Int
   let y: Int
   let z: Int
   let urlTemplate: String
+  
+  var thirdParty: Bool {
+    return !urlTemplate.hasPrefix("mapbox://")
+  }
 }
 
 struct RegionTileInfo {
+  let neededTiles: Set<CandidateTile>
   let tilesToDownload: Set<CandidateTile>
   let tilesAlreadyDownloaded: Set<Int>
   let totalSizeOfTilesDownloaded: Int64
 }
 
 struct RegionResourceInfo {
+  let neededResources: Set<RequestedResource>
   let resourcesToDownload: Set<RequestedResource>
   let resourcesAlreadyDownloaded: Set<Int>
   let totalSizeOfResourcesDownloaded: Int64
@@ -173,9 +188,12 @@ func downloadRegionAssets(
     }
 
     for tile in assets.tiles.tilesToDownload {
-      let uri = getDownloadURL(tile: tile, params: [
-        "access_token": mapboxToken,
-      ])
+      var params: [String: String] = [:]
+      if !tile.thirdParty {
+        params = ["access_token": mapboxToken]
+      }
+      
+      let uri = getDownloadURL(tile: tile, params: params)
       taskGroup.addTask {
         try Task.checkCancellation()
         do {
@@ -381,6 +399,7 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
   }
 
   return RegionTileInfo(
+    neededTiles: candidateTiles,
     tilesToDownload: tilesToDownload,
     tilesAlreadyDownloaded: tilesAlreadyDownloaded,
     totalSizeOfTilesDownloaded: totalSizeOfTilesDownloaded
@@ -405,9 +424,9 @@ func getResourcesToDownload(
     // decode the style
     let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: data)
     
-    
+    // Could limit the maximum code point here...
     let r1 = try findResourcesRequestedByMapboxStyle(
-      spec: styleSpec, options: ResourceFindOptions(maxCodePoint: 255))
+      spec: styleSpec, options: ResourceFindOptions())
     
     resources.formUnion(r1)
   }
@@ -432,6 +451,7 @@ func getResourcesToDownload(
   }
 
   return RegionResourceInfo(
+    neededResources: resources,
     resourcesToDownload: resourcesToDownload,
     resourcesAlreadyDownloaded: resourcesAlreadyDownloaded,
     totalSizeOfResourcesDownloaded: totalSizeOfResourcesDownloaded

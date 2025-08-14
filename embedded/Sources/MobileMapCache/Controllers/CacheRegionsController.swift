@@ -350,13 +350,13 @@ struct CacheRegionsController: RouteCollection {
     app.logger.info("Starting download for region \(regionID)...")
     
     _ = try await MobileMapCache.downloadRegionAssets(with: app, using: regionDefinition, regionID: regionID) { progress in
-      app.logger
-        .info("""
-          Downloading region \(regionID):
-          - \(progress.resourcesDownloaded) of \(progress.resourcesTotal) resources
-          - \(progress.tilesDownloaded) of \(progress.tilesTotal) tiles
-          """
-        )
+//      app.logger
+//        .info("""
+//          Downloading region \(regionID):
+//          - \(progress.resourcesDownloaded) of \(progress.resourcesTotal) resources
+//          - \(progress.tilesDownloaded) of \(progress.tilesTotal) tiles
+//          """
+//        )
       guard let data = try? encoder.encode(progress), let msg = String(data: data, encoding: .utf8) else {
         app.logger.error("Failed to encode progress message")
         return

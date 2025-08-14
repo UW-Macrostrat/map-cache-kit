@@ -284,15 +284,6 @@ func getFontStackURLs(_ styleSpec: StyleSpec, fontStacks: [String], ranges: [Str
   return fontStackURLs
 }
 
-struct RequestedResource: Hashable, Equatable {
-  let urlTemplate: String
-  let kind: ResourceKind
-
-  var thirdParty: Bool {
-    return !urlTemplate.hasPrefix("mapbox://")
-  }
-}
-
 func findFontStacksRequestedByMapboxStyle(spec: StyleSpec, maxCodePoint: Int = 65535) throws -> Set<RequestedResource> {
   
   let fonts = Array(findFontsRequestedByMapboxStyle(spec: spec))
