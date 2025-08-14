@@ -1,4 +1,5 @@
 import Foundation
+import GEOSwift
 
 enum Argument<T: Codable>: Codable {
   case string(String)
@@ -184,8 +185,8 @@ struct StyleSpec: Codable {
     let type: String
     let source: String?
     let sourceLayer: String?
-    let layout: StyleLayout
-    let paint: StylePaint
+    let layout: StyleLayout?
+    let paint: StylePaint?
     
     struct StyleLayout: Codable {
       let textFont: Value<[String]>?
@@ -198,8 +199,8 @@ struct StyleSpec: Codable {
     }
     
     struct StylePaint: Codable {
-      let backgroundColor: String?
-      let textColor: String?
+      let backgroundColor: JSON?
+      let textColor: JSON?
       
       enum CodingKeys: String, CodingKey {
         case backgroundColor = "background-color"

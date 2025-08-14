@@ -228,7 +228,7 @@ func findResourcesRequestedByMapboxStyle(spec: StyleSpec, options: ResourceFindO
 func findFontsRequestedByMapboxStyle(spec: StyleSpec) -> Set<String> {
   var fontStacks: Set<String> = []
   for lyr in spec.layers {
-    if let font = lyr.layout.textFont {
+    if let font = lyr.layout?.textFont {
       switch font {
       case .constant(let fonts):
         // Concatenate fonts into a single font stack
@@ -263,7 +263,7 @@ func buildFontStackURL(_ urlTemplate: String, fontStack: String, range: String) 
     .replacingOccurrences(of: "{range}", with: range)
 }
 
-func getFontStackURLs(_ styleSpec: StyleSpec, fontStacks: [String], ranges: [String] = ["0-255"]) throws -> [String] {
+func getFontStackURLs(_ styleSpec: StyleSpec, fontStacks: [String], ranges: [String] = ["0-255"]) -> [String] {
   var glyphsURLTemplate: String
   if let glyphs = styleSpec.glyphs {
     // Check if the glyphs URL is in the font stacks
@@ -272,7 +272,7 @@ func getFontStackURLs(_ styleSpec: StyleSpec, fontStacks: [String], ranges: [Str
     // If the glyphs URL is not specified, use the owner to construct the URL
     glyphsURLTemplate = "mapbox://fonts/\(owner)/{fontstack}/{range}.pbf"
   } else {
-    throw RuntimeError.invalidArgument("Glyphs URL not found in style spec")
+    return []
   }
   
   var fontStackURLs: [String] = []
@@ -305,7 +305,7 @@ func findFontStacksRequestedByMapboxStyle(spec: StyleSpec, maxCodePoint: Int = 6
   }
 
   var fontStacks = Set<RequestedResource>()
-  let fontStackURLs = try getFontStackURLs(spec, fontStacks: fonts, ranges: ranges)
+  let fontStackURLs = getFontStackURLs(spec, fontStacks: fonts, ranges: ranges)
   
   for url in fontStackURLs {
     fontStacks.insert(RequestedResource(urlTemplate: url, kind: .font))

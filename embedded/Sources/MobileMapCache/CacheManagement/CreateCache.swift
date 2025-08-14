@@ -132,9 +132,13 @@ func downloadRegionAssets(
       taskGroup.addTask {
         try Task.checkCancellation()
         do {
-          let uri = getDownloadURL(resource, params: [
-            "access_token": mapboxToken,
-          ])
+          var params = [String: String]()
+          
+          if !resource.thirdParty {
+            params = ["access_token": mapboxToken]
+          }
+          
+          let uri = getDownloadURL(resource, params: params)
           
           let res = try await downloadFile(with: app, url: uri)
           app.logger.info("Resource \(uri): \(res.status)")
@@ -170,7 +174,7 @@ func downloadRegionAssets(
           
           var data: Data? = nil
           switch res.status {
-          case .notFound:
+          case .noContent, .notFound:
             data = nil
           case .ok:
             if let body = res.body, body.readableBytes > 0 {
@@ -185,6 +189,7 @@ func downloadRegionAssets(
           )
 
         } catch {
+          app.logger.error("Failed to download \(uri): \(error)")
           return DownloadResult(
             uri: uri, request: .tile(tile), result: .failure(error)
           )
@@ -344,7 +349,7 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
   // already downloaded tiles
   for candidate in candidateTiles {
     let sql: SQLQueryString = """
-      SELECT length(data) size FROM tiles
+      SELECT coalesce(length(data), 0) size FROM tiles
       WHERE x = \(bind: candidate.x)
         AND y = \(bind: candidate.y)
         AND z = \(bind: candidate.z)

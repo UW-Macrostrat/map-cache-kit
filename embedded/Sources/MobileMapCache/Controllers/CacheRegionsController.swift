@@ -245,10 +245,10 @@ struct CacheRegionsController: RouteCollection {
         r.id,
         r.definition,
         r.description,
-        rc.resource_size,
-        rc.resource_count,
-        tc.tile_size,
-        tc.tile_count
+        coalesce(rc.resource_size, 0) resource_size,
+        coalesce(rc.resource_count, 0) resource_count,
+        coalesce(tc.tile_size, 0) tile_size,
+        coalesce(tc.tile_count, 0) tile_count
       FROM regions r
       LEFT JOIN resources_count rc
         ON rc.region_id = r.id
@@ -490,10 +490,10 @@ func getTotalSize(db: any SQLDatabase) async throws -> CachedAssetsInfo {
         FROM tiles
       )
       SELECT
-        rc.resource_size,
-        rc.resource_count,
-        tc.tile_size,
-        tc.tile_count
+        coalesce(rc.resource_size, 0) resource_size,
+        coalesce(rc.resource_count, 0) resource_count,
+        coalesce(tc.tile_size, 0) tile_size,
+        coalesce(tc.tile_count, 0) tile_count
       FROM resources_count rc, tiles_count tc;
     """
   
