@@ -61,18 +61,18 @@ struct CandidateTile: Hashable, Equatable {
 }
 
 struct RegionTileInfo {
-  let tilesToDownload: [CandidateTile]
-  let tilesAlreadyDownloaded: [CandidateTile]
+  let tilesToDownload: Set<CandidateTile>
+  let tilesAlreadyDownloaded: Set<Int>
   let totalSizeOfTilesDownloaded: Int64
 }
 
 struct RegionResourceInfo {
   let resourcesToDownload: Set<RequestedResource>
-  let resourcesAlreadyDownloaded: Set<RequestedResource>
+  let resourcesAlreadyDownloaded: Set<Int>
   let totalSizeOfResourcesDownloaded: Int64
 }
 
-struct RegionAssetsToDownload {
+struct RegionAssetsPrepareStatus {
   let tiles: RegionTileInfo
   let resources: RegionResourceInfo
 }
@@ -111,7 +111,7 @@ struct CacheRegionProgress: Content {
 }
 
 func downloadRegionAssets(
-  with app: Application, using definition: CacheRegionDefinition, regionId: Int,
+  with app: Application, using definition: CacheRegionDefinition, regionID: Int,
   onProgress: @escaping (CacheRegionProgress) async throws -> Void = { _ in }
 ) async throws -> CacheRegionProgress {
 
@@ -124,7 +124,17 @@ func downloadRegionAssets(
   guard let db = app.db as? any SQLDatabase else {
     throw RuntimeError.databaseError("Database is not an SQLDatabase")
   }
+  
+  // Insert links for existing tiles and resources
 
+  for tile in assets.tiles.tilesAlreadyDownloaded {
+    try await insertLink(db, regionID: regionID, tileID: tile)
+  }
+  for resource in assets.resources.resourcesAlreadyDownloaded {
+    try await insertLink(db, regionID: regionID, resourceID: resource)
+  }
+
+  // Download new tiles and resources
   return try await withThrowingTaskGroup(of: DownloadResult.self) { taskGroup in
     for resource in assets.resources.resourcesToDownload {
       let uri = URI(string: resource.urlTemplate)
@@ -208,7 +218,7 @@ func downloadRegionAssets(
     let totalResources = assets.resources.resourcesToDownload.count
     
     let initialProgress = CacheRegionProgress(
-      regionID: regionId,
+      regionID: regionID,
       resourcesDownloaded: 0,
       resourcesFailed: 0,
       resourcesTotal: totalResources,
@@ -222,6 +232,7 @@ func downloadRegionAssets(
     
     var lastVal = initialProgress
     
+    
     // Handle completed downloads
     var nTasks = 0
     for try await result in taskGroup {
@@ -234,7 +245,7 @@ func downloadRegionAssets(
             tile: tile,
             data: data,
             compressed: false,
-            regionId: regionId,
+            regionID: regionID,
             pixelRatio: definition.pixelRatio
           )
           downloadedTiles += 1
@@ -246,7 +257,7 @@ func downloadRegionAssets(
           }
           try await persistResource(
             to: db, url: resource.urlTemplate, data: data,
-            compressed: false, kind: resource.kind, regionId: regionId
+            compressed: false, kind: resource.kind, regionID: regionID
           )
           downloadedResources += 1
         }
@@ -260,7 +271,7 @@ func downloadRegionAssets(
       }
       
       let val  = CacheRegionProgress(
-        regionID: regionId,
+        regionID: regionID,
         resourcesDownloaded: downloadedResources,
         resourcesFailed: failedResources,
         resourcesTotal: totalResources,
@@ -290,7 +301,7 @@ func downloadFile(with app: Application, url: URI) async throws -> ClientRespons
 
 func getRegionAssets(
   with app: Application, using definition: CacheRegionDefinition
-) async throws -> RegionAssetsToDownload {
+) async throws -> RegionAssetsPrepareStatus {
   let tiles = try await getTilesToDownload(with: app, using: definition)
 
   // Get the resources to download
@@ -302,7 +313,7 @@ func getRegionAssets(
           - \(tiles.tilesToDownload) tiles
           """
     )
-  return RegionAssetsToDownload(tiles: tiles, resources: resources)
+  return RegionAssetsPrepareStatus(tiles: tiles, resources: resources)
 }
 
 func getTilesToDownload(with app: Application, using definition: CacheRegionDefinition) async throws
@@ -342,26 +353,30 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
     throw RuntimeError.databaseError("Database is not an SQLDatabase")
   }
 
-  var tilesToDownload: [CandidateTile] = []
-  var tilesAlreadyDownloaded: [CandidateTile] = []
+  var tilesToDownload: Set<CandidateTile> = []
+  var tilesAlreadyDownloaded: Set<Int> = []
   var totalSizeOfTilesDownloaded: Int64 = 0
 
   // already downloaded tiles
+  // need to get ID of tiles...
   for candidate in candidateTiles {
     let sql: SQLQueryString = """
-      SELECT coalesce(length(data), 0) size FROM tiles
+      SELECT
+        id,
+        coalesce(length(data), 0) size
+      FROM tiles
       WHERE x = \(bind: candidate.x)
         AND y = \(bind: candidate.y)
         AND z = \(bind: candidate.z)
         AND url_template = \(bind: candidate.urlTemplate)
       LIMIT 1
       """
-    if let tileSize = try await db.raw(sql).first(decodingColumn: "size", as: Int64.self) {
-      totalSizeOfTilesDownloaded += tileSize
-      tilesAlreadyDownloaded.append(candidate)
+    if let tile = try await db.raw(sql).first(decoding: ExistingAssetInfo.self) {
+      totalSizeOfTilesDownloaded += tile.size
+      tilesAlreadyDownloaded.insert(tile.id)
     } else {
       // If the tile is not in the database, we need to download it
-      tilesToDownload.append(candidate)
+      tilesToDownload.insert(candidate)
     }
   }
 
@@ -370,6 +385,11 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
     tilesAlreadyDownloaded: tilesAlreadyDownloaded,
     totalSizeOfTilesDownloaded: totalSizeOfTilesDownloaded
   )
+}
+
+struct ExistingAssetInfo: Content {
+  let size: Int64
+  let id: Int
 }
 
 func getResourcesToDownload(
@@ -394,17 +414,17 @@ func getResourcesToDownload(
 
   // Check which resources are already downloaded
   var resourcesToDownload: Set<RequestedResource> = []
-  var resourcesAlreadyDownloaded: Set<RequestedResource> = []
+  var resourcesAlreadyDownloaded: Set<Int> = []
   var totalSizeOfResourcesDownloaded: Int64 = 0
 
   for resource in resources {
     // Check if the resource is already in the database
-    if let size = try await findResourceInDatabase(
+    if let resource = try await findResourceInDatabase(
       db: app.db, url: resource.urlTemplate, kind: resource.kind)
     {
       // Resource already exists
-      totalSizeOfResourcesDownloaded += size
-      resourcesAlreadyDownloaded.insert(resource)
+      totalSizeOfResourcesDownloaded += resource.size
+      resourcesAlreadyDownloaded.insert(resource.id)
     } else {
       // Resource needs to be downloaded
       resourcesToDownload.insert(resource)
@@ -420,9 +440,11 @@ func getResourcesToDownload(
 
 func findResourceInDatabase(
   db: any Database, url: String, kind: ResourceKind
-) async throws -> Int64? {
+) async throws -> ExistingAssetInfo? {
   let sql: SQLQueryString = """
-    SELECT length(data) as size
+    SELECT
+      id,
+      length(data) as size
     FROM resources
     WHERE url = \(bind: url)
       AND kind = \(bind: kind.rawValue)
@@ -433,7 +455,7 @@ func findResourceInDatabase(
     throw RuntimeError.databaseError("Database is not an SQLDatabase")
   }
 
-  if let row = try await db.raw(sql).first(decodingColumn: "size", as: Int64.self) {
+  if let row = try await db.raw(sql).first(decoding: ExistingAssetInfo.self) {
     return row
   }
   return nil
@@ -547,7 +569,7 @@ func inferTileURLTemplate(from tileJSONURL: String, sourceType: SourceType) thro
 }
 
 func persistTile(
-  to db: any SQLDatabase, tile: CandidateTile, data: Data?, compressed: Bool, regionId: Int, pixelRatio: Int = 1
+  to db: any SQLDatabase, tile: CandidateTile, data: Data?, compressed: Bool, regionID: Int, pixelRatio: Int = 1
 ) async throws {
   // Cast to SQLDatabase
   
@@ -588,18 +610,11 @@ func persistTile(
     throw RuntimeError.databaseError("Failed to insert or update tile")
   }
   
-  let regionTileInsert: SQLQueryString = """
-    INSERT INTO region_tiles (region_id, tile_id)
-    VALUES (\(bind: regionId), \(bind: id))
-    ON CONFLICT (region_id, tile_id) DO NOTHING
-  """
-  
-  // Now insert into region_tiles
-  _ = try await db.raw(regionTileInsert).run()
+  try await insertLink(db, regionID: regionID, tileID: id)
 }
 
 func persistResource(
-  to db: any SQLDatabase, url: String, data: Data, compressed: Bool, kind: ResourceKind, regionId: Int
+  to db: any SQLDatabase, url: String, data: Data, compressed: Bool, kind: ResourceKind, regionID: Int
 ) async throws {
   let data1 = ByteBuffer(data: data)
   
@@ -620,14 +635,25 @@ func persistResource(
           else {
     throw RuntimeError.databaseError("Failed to insert or update resource")
   }
-  
   // Now insert into region_resources
+  try await insertLink(db, regionID: regionID, resourceID: id)
+}
+
+func insertLink(_ db: any SQLDatabase, regionID: Int, resourceID: Int) async throws {
   let regionResourceInsert: SQLQueryString = """
     INSERT INTO region_resources (region_id, resource_id)
-    VALUES (\(bind: regionId), \(bind: id))
+    VALUES (\(bind: regionID), \(bind: resourceID))
     ON CONFLICT (region_id, resource_id) DO NOTHING
   """
+  _ = try await db.raw(regionResourceInsert).run()
+}
 
+func insertLink(_ db: any SQLDatabase, regionID: Int, tileID: Int) async throws {
+  let regionResourceInsert: SQLQueryString = """
+    INSERT INTO region_tiles (region_id, tile_id)
+    VALUES (\(bind: regionID), \(bind: tileID))
+    ON CONFLICT (region_id, tile_id) DO NOTHING
+  """
   _ = try await db.raw(regionResourceInsert).run()
 }
 

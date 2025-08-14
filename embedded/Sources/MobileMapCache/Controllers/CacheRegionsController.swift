@@ -349,7 +349,7 @@ struct CacheRegionsController: RouteCollection {
    
     app.logger.info("Starting download for region \(regionID)...")
     
-    _ = try await MobileMapCache.downloadRegionAssets(with: app, using: regionDefinition, regionId: regionID) { progress in
+    _ = try await MobileMapCache.downloadRegionAssets(with: app, using: regionDefinition, regionID: regionID) { progress in
       app.logger
         .info("""
           Downloading region \(regionID):

@@ -287,7 +287,7 @@ func getFontStackURLs(_ styleSpec: StyleSpec, fontStacks: [String], ranges: [Str
 struct RequestedResource: Hashable, Equatable {
   let urlTemplate: String
   let kind: ResourceKind
-  
+
   var thirdParty: Bool {
     return !urlTemplate.hasPrefix("mapbox://")
   }
