@@ -200,10 +200,10 @@ function CacheItem({ cache }: { cache: MapCacheListing }) {
             cacheId: cache.id,
           }),
         ]),
-        // m(_Map, {
-        //   geometry: cache.definition.geometry,
-        //   onClick,
-        // }),
+        m(_Map, {
+          geometry: cache.definition.geometry,
+          onClick,
+        }),
       ]),
     ],
   );

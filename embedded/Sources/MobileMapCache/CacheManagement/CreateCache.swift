@@ -708,6 +708,16 @@ func insertLink(_ db: any SQLDatabase, regionID: Int, tileID: Int) async throws 
   _ = try await db.raw(regionResourceInsert).run()
 }
 
+
+extension TileCoord {
+  var envelopeGeographic: Envelope {
+    let env = self.envelope
+    let min = webMercatorToEpsg4326(point: env.minXMinY)
+    let max = webMercatorToEpsg4326(point: env.maxXMaxY)
+    return Envelope(minX: min.x, maxX: max.x, minY: min.y, maxY: max.y)
+  }
+}
+
 func getIntersectingTiles(for geom: Geometry, minZoom: Int, maxZoom: Int) throws -> Set<TileCoord> {
   let parentTile = try getParentTile(for: geom)
 
@@ -721,7 +731,7 @@ func getIntersectingTiles(for geom: Geometry, minZoom: Int, maxZoom: Int) throws
   var currentLevelTiles: [TileCoord] = []
 
   for zoom in stride(from: min(minZoom, parentTile.z), through: maxZoom, by: 1) {
-    let deltaZ = parentTile.z - zoom
+    let deltaZ = zoom - parentTile.z
     let factor = Double.pow(2, deltaZ)
     let xTile = Int(Double(parentTile.x) * factor)
     let yTile = Int(Double(parentTile.y) * factor)
@@ -740,7 +750,7 @@ func getIntersectingTiles(for geom: Geometry, minZoom: Int, maxZoom: Int) throws
             let newY = tile.y * 2 + dy
             // Check that all tiles intersect the geometry
             let newTile = TileCoord(newX, newY, zoom)
-            if try geom.intersects(newTile.envelope) {
+            if try geom.intersects(newTile.envelopeGeographic) {
               // Only add the tile if it intersects the geometry
               // This prevents adding tiles that are not needed
               // at this zoom level
@@ -797,30 +807,33 @@ func getParentTile(for geom: Geometry) throws -> TileCoord {
     minY: bottomLeft.y,
     maxY: topRight.y
   )
+  
+  return try getParentTile(for: webMercatorEnvelope, within: tileCoord, maxZoom: 30)
 
-  while tileCoord.z < 30 {
-    // Check if any of the child tiles cover the geometry
-    let x0 = tileCoord.x * 2
-    let y0 = tileCoord.y * 2
-    let z = tileCoord.z + 1
-    let childTiles = [
-      TileCoord(x0, y0, z),  // Bottom-left
-      TileCoord(x0 + 1, y0, z),  // Bottom-right
-      TileCoord(x0, y0 + 1, z),  // Top-left
-      TileCoord(x0 + 1, y0 + 1, z),  // Top-right
-    ]
+}
 
-    for childTile in childTiles {
-      if try childTile.envelope.covers(webMercatorEnvelope) {
-        tileCoord = childTile
-        break
-      }
-    }
-    // If we didn't find a child tile that covers the geometry, we can stop
+func getParentTile(for envelope: Envelope, within tileCoord: TileCoord, maxZoom: Int = 30) throws -> TileCoord {
+  if tileCoord.z >= maxZoom {
     return tileCoord
   }
-
-  throw RuntimeError.invalidArgument("Unable to find parent tile for geometry")
+  
+  // Check if any of the child tiles cover the geometry
+  let x0 = tileCoord.x * 2
+  let y0 = tileCoord.y * 2
+  let z = tileCoord.z + 1
+  let childTiles = [
+    TileCoord(x0, y0, z),  // Bottom-left
+    TileCoord(x0 + 1, y0, z),  // Bottom-right
+    TileCoord(x0, y0 + 1, z),  // Top-left
+    TileCoord(x0 + 1, y0 + 1, z),  // Top-right
+  ]
+  
+  for childTile in childTiles {
+    if try childTile.envelope.covers(envelope) {
+      return try getParentTile(for: envelope, within: childTile, maxZoom: maxZoom)
+    }
+  }
+  return tileCoord
 }
 
 /**

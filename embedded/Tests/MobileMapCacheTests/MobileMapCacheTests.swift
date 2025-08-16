@@ -426,6 +426,9 @@ struct IntersectingTileTests {
     let polygonWKT = "POLYGON((-105 35, -105 38, -100 38, -100 35, -105 35))"
     let polygon = try Polygon(wkt: polygonWKT)
     
+    let tile = try getParentTile(for: polygon.geometry)
+    #expect(tile == TileCoord(3, 6, 4))
+    
     // Get intersecting tiles
     let intersectingTiles = try getIntersectingTiles(for: polygon.geometry, minZoom: 4, maxZoom: 4)
     #expect(intersectingTiles.count == 1)
