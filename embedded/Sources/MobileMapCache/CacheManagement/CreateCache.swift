@@ -118,7 +118,7 @@ struct CacheRegionProgress: Content {
   let tilesFailed: Int
   let isFinished: Bool
   
-  func progress() -> Double {
+  var progress: Double {
     let total = Double(resourcesTotal + tilesTotal)
     guard total > 0 else { return 1.0 }
     return Double(resourcesDownloaded + tilesDownloaded + resourcesFailed + tilesFailed) / total
@@ -143,8 +143,6 @@ func downloadRegionAssets(
     throw RuntimeError.databaseError("Database is not an SQLDatabase")
   }
   
-  // Insert links for existing tiles and resources
-
   for tile in assets.tiles.tilesAlreadyDownloaded {
     try await insertLink(db, regionID: regionID, tileID: tile)
   }
@@ -658,7 +656,7 @@ func persistResource(
   guard let id = try await db.raw(resourceInsert)
     .first(decodingColumn: "id", as: Int.self)
           else {
-    throw RuntimeError.databaseError("Failed to insert or update resource")
+    throw RuntimeError.databaseError("Failed to insert resource into database")
   }
   // Now insert into region_resources
   try await insertLink(db, regionID: regionID, resourceID: id)

@@ -14,194 +14,6 @@ import SwiftTileMatrix
 // definition: {"style_url":"http://localhost:50051/dynamic-styles/rockd-cache.v1.0.satellite.json","min_zoom":0.0,"max_zoom":0.0,"pixel_ratio":2.0,"glyphs_rasterization":1,"geometry":{"type":"Polygon","coordinates":[[[-180.0,-90.0],[180.0,-90.0],[180.0,90.0],[-180.0,90.0],[-180.0,-90.0]]]}}
 // description: {"layers":["satellite"],"styleVersion":"1.0","updated":"2025-01-10T05:37:00.000Z","name":"rockd-cache.v1.0.satellite","created":"2025-01-10T05:37:00.000Z"}
 
-struct CacheCreationInfo: Content {
-  /** Information for modern style cache creation */
-  let minZoom: Double
-  let maxZoom: Double
-  let pixelRatio: Double
-  let geometry: PolygonGeometry
-  let styles: [StyleDefinition]
-  let name: String
-  let layers: [String]
-  
-  enum CodingKeys: String, CodingKey {
-    case minZoom = "min_zoom"
-    case maxZoom = "max_zoom"
-    case pixelRatio = "pixel_ratio"
-    case geometry
-    case styles
-    case name
-    case layers
-  }
-  
-  func synthesizeLegacyDefinition() -> MBXCacheRegion {
-    let def = MBXCacheRegionDefinition(
-      styleURL: "local://test",
-      minZoom: minZoom,
-      maxZoom: maxZoom,
-      pixelRatio: pixelRatio,
-      glyphsRasterization: 0, // Default value for legacy
-      geometry: geometry
-    )
-    
-    let now = Date().ISO8601Format()
-    
-    let desc = MBXCacheRegionDescription(
-      layers: layers,
-      styleVersion: styleCacheVersion,
-      updated: now,
-      name: name,
-      created: now
-    )
-    
-    return MBXCacheRegion(
-      definition: def,
-      description: desc
-    )
-  }
-}
-
-struct PolygonGeometry: Content {
-  let type: String
-  let coordinates: [[[Double]]]
-}
-
-// Version for new style cache definition
-let styleCacheVersion = "1.0"
-
-struct MBXCacheRegionDefinition: Content {
-  /** Cache region definition for a Mapbox Maps SDK cache */
-  let styleURL: String
-  let minZoom: Double
-  let maxZoom: Double
-  let pixelRatio: Double
-  let glyphsRasterization: Int
-  let geometry: PolygonGeometry
-
-  enum CodingKeys: String, CodingKey {
-    case styleURL = "style_url"
-    case minZoom = "min_zoom"
-    case maxZoom = "max_zoom"
-    case pixelRatio = "pixel_ratio"
-    case glyphsRasterization = "glyphs_rasterization"
-    case geometry
-  }
-}
-
-struct MBXCacheRegionDescription: Content {
-  let layers: [String]
-  let styleVersion: String
-  let updated: String
-  let name: String
-  let created: String
-}
-
-struct CachedAssetsInfo: Content {
-  let resourceSize: Int
-  let tileSize: Int
-  let resourceCount: Int
-  let tileCount: Int
-  
-  enum CodingKeys : String, CodingKey {
-    case resourceSize = "resource_size"
-    case tileSize = "tile_size"
-    case resourceCount = "resource_count"
-    case tileCount = "tile_count"
-  }
-}
-
-struct MBXCacheRegion: Content {
-  let id: Int?
-  let definition: MBXCacheRegionDefinition
-  let description: MBXCacheRegionDescription
-  let cachedAssets: CachedAssetsInfo?
-  
-  var isGlobal: Bool {
-    let tileCoord = TileCoord(0, 0, 0)
-    do {
-      let geom = try self.getGeometry()
-      let area = try geom.area()
-      
-      let tmsEnvelope = tileCoord.envelope
-      let tmsEnvelope4326 = try MultiPoint(
-        points: [tmsEnvelope.minXMinY, tmsEnvelope.maxXMaxY]
-          .map(webMercatorToEpsg4236)
-      ).envelope()
-      let tmsArea = try tmsEnvelope4326.area()
-      
-      if area > tmsArea * 0.999 && area < tmsArea * 1.25 {
-        return true
-      }
-      return false
-    } catch {
-      return false
-    }
-  }
-  
-  private func getGeometry() throws -> Polygon {
-    return Polygon(exterior: try Polygon.LinearRing(points: definition.geometry.coordinates[0].map { Point(x: $0[0], y: $0[1]) }))
-  }
-  
-  func asRegionDefinition(styles: [StyleDefinition]) throws -> CacheRegionDefinition {
-    return CacheRegionDefinition(
-      styles: styles,
-      minZoom: Int(definition.minZoom),
-      maxZoom: Int(definition.maxZoom),
-      pixelRatio: Int(definition.pixelRatio),
-      glyphsRasterization: definition.glyphsRasterization,
-      geometry: try self.getGeometry()
-    )
-  }
-  
-  enum CodingKeys: String, CodingKey {
-    case id
-    case definition
-    case description
-    case isGlobal = "global"
-    case cachedAssets = "assets"
-  }
-  
-  init(
-    id: Int? = nil,
-    definition: MBXCacheRegionDefinition,
-    description: MBXCacheRegionDescription,
-    cachedAssets: CachedAssetsInfo? = nil
-  ) {
-    self.id = id
-    self.definition = definition
-    self.description = description
-    self.cachedAssets = cachedAssets
-  }
-  
-  // Allow encoding of isGlobal as a computed property, but ignore it if sent
-  func encode(to encoder: any Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encode(definition, forKey: .definition)
-    try container.encode(description, forKey: .description)
-    try container.encode(isGlobal, forKey: .isGlobal)
-    try container.encode(cachedAssets, forKey: .cachedAssets)
-  }
-  
-  init(from decoder: any Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    self.id = try container.decodeIfPresent(Int.self, forKey: .id)
-    self.definition = try container.decode(MBXCacheRegionDefinition.self, forKey: .definition)
-    self.description = try container.decode(MBXCacheRegionDescription.self, forKey: .description)
-    
-    // First try decoding a nested "assets" field, and then try decoding
-    // the cached asset keys directly from this object (this handles database row decoding)
-    self.cachedAssets = try container.decodeIfPresent(CachedAssetsInfo.self, forKey: .cachedAssets)
-      ?? (try? decoder.singleValueContainer().decode(CachedAssetsInfo.self))
-  }
-  
-}
-
-struct CacheRegionsInfo: Content {
-  let regions: [MBXCacheRegion]
-  let assets: CachedAssetsInfo
-}
-
 struct CacheRegionsController: RouteCollection {
 
   let connectionManager = WebSocketConnectionManager()
@@ -213,9 +25,9 @@ struct CacheRegionsController: RouteCollection {
     regions.get(use: self.index)
     regions.post(use: self.create)
     regions.webSocket("events") { req, ws async in
+      req.logger.info("WebSocket connection established")
       await connectionManager.add(ws)
     }
-    
     
     regions.post(":id", "download", use: self.downloadAssets)
     regions.post(":id", "cancel", use: self.cancelRegionDownload)
@@ -360,13 +172,6 @@ struct CacheRegionsController: RouteCollection {
         regionID: regionID,
         options: ResourceFindOptions()
       ) { progress in
-//      app.logger
-//        .info("""
-//          Downloading region \(regionID):
-//          - \(progress.resourcesDownloaded) of \(progress.resourcesTotal) resources
-//          - \(progress.tilesDownloaded) of \(progress.tilesTotal) tiles
-//          """
-//        )
       guard let data = try? encoder.encode(progress), let msg = String(data: data, encoding: .utf8) else {
         app.logger.error("Failed to encode progress message")
         return
@@ -460,6 +265,9 @@ actor WebSocketConnectionManager {
 
   func sendToAll(_ message: String) async throws {
     for ws in connections {
+      if ws.isClosed {
+        continue // Skip closed connections
+      }
       try await ws.send(message)
     }
   }
@@ -492,4 +300,193 @@ func getTotalSize(db: any SQLDatabase) async throws -> CachedAssetsInfo {
   }
   return res
 
+}
+
+
+struct CacheCreationInfo: Content {
+  /** Information for modern style cache creation */
+  let minZoom: Double
+  let maxZoom: Double
+  let pixelRatio: Double
+  let geometry: PolygonGeometry
+  let styles: [StyleDefinition]
+  let name: String
+  let layers: [String]
+  
+  enum CodingKeys: String, CodingKey {
+    case minZoom = "min_zoom"
+    case maxZoom = "max_zoom"
+    case pixelRatio = "pixel_ratio"
+    case geometry
+    case styles
+    case name
+    case layers
+  }
+  
+  func synthesizeLegacyDefinition() -> MBXCacheRegion {
+    let def = MBXCacheRegionDefinition(
+      styleURL: "local://test",
+      minZoom: minZoom,
+      maxZoom: maxZoom,
+      pixelRatio: pixelRatio,
+      glyphsRasterization: 0, // Default value for legacy
+      geometry: geometry
+    )
+    
+    let now = Date().ISO8601Format()
+    
+    let desc = MBXCacheRegionDescription(
+      layers: layers,
+      styleVersion: styleCacheVersion,
+      updated: now,
+      name: name,
+      created: now
+    )
+    
+    return MBXCacheRegion(
+      definition: def,
+      description: desc
+    )
+  }
+}
+
+struct PolygonGeometry: Content {
+  let type: String
+  let coordinates: [[[Double]]]
+}
+
+// Version for new style cache definition
+let styleCacheVersion = "1.0"
+
+struct MBXCacheRegionDefinition: Content {
+  /** Cache region definition for a Mapbox Maps SDK cache */
+  let styleURL: String
+  let minZoom: Double
+  let maxZoom: Double
+  let pixelRatio: Double
+  let glyphsRasterization: Int
+  let geometry: PolygonGeometry
+  
+  enum CodingKeys: String, CodingKey {
+    case styleURL = "style_url"
+    case minZoom = "min_zoom"
+    case maxZoom = "max_zoom"
+    case pixelRatio = "pixel_ratio"
+    case glyphsRasterization = "glyphs_rasterization"
+    case geometry
+  }
+}
+
+struct MBXCacheRegionDescription: Content {
+  let layers: [String]
+  let styleVersion: String
+  let updated: String
+  let name: String
+  let created: String
+}
+
+struct CachedAssetsInfo: Content {
+  let resourceSize: Int
+  let tileSize: Int
+  let resourceCount: Int
+  let tileCount: Int
+  
+  enum CodingKeys : String, CodingKey {
+    case resourceSize = "resource_size"
+    case tileSize = "tile_size"
+    case resourceCount = "resource_count"
+    case tileCount = "tile_count"
+  }
+}
+
+struct MBXCacheRegion: Content {
+  let id: Int?
+  let definition: MBXCacheRegionDefinition
+  let description: MBXCacheRegionDescription
+  let cachedAssets: CachedAssetsInfo?
+  
+  var isGlobal: Bool {
+    let tileCoord = TileCoord(0, 0, 0)
+    do {
+      let geom = try self.getGeometry()
+      let area = try geom.area()
+      
+      let tmsEnvelope = tileCoord.envelope
+      let tmsEnvelope4326 = try MultiPoint(
+        points: [tmsEnvelope.minXMinY, tmsEnvelope.maxXMaxY]
+          .map(webMercatorToEpsg4236)
+      ).envelope()
+      let tmsArea = try tmsEnvelope4326.area()
+      
+      if area > tmsArea * 0.999 && area < tmsArea * 1.25 {
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
+  
+  private func getGeometry() throws -> Polygon {
+    return Polygon(exterior: try Polygon.LinearRing(points: definition.geometry.coordinates[0].map { Point(x: $0[0], y: $0[1]) }))
+  }
+  
+  func asRegionDefinition(styles: [StyleDefinition]) throws -> CacheRegionDefinition {
+    return CacheRegionDefinition(
+      styles: styles,
+      minZoom: Int(definition.minZoom),
+      maxZoom: Int(definition.maxZoom),
+      pixelRatio: Int(definition.pixelRatio),
+      glyphsRasterization: definition.glyphsRasterization,
+      geometry: try self.getGeometry()
+    )
+  }
+  
+  enum CodingKeys: String, CodingKey {
+    case id
+    case definition
+    case description
+    case isGlobal = "global"
+    case cachedAssets = "assets"
+  }
+  
+  init(
+    id: Int? = nil,
+    definition: MBXCacheRegionDefinition,
+    description: MBXCacheRegionDescription,
+    cachedAssets: CachedAssetsInfo? = nil
+  ) {
+    self.id = id
+    self.definition = definition
+    self.description = description
+    self.cachedAssets = cachedAssets
+  }
+  
+  // Allow encoding of isGlobal as a computed property, but ignore it if sent
+  func encode(to encoder: any Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encodeIfPresent(id, forKey: .id)
+    try container.encode(definition, forKey: .definition)
+    try container.encode(description, forKey: .description)
+    try container.encode(isGlobal, forKey: .isGlobal)
+    try container.encode(cachedAssets, forKey: .cachedAssets)
+  }
+  
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.id = try container.decodeIfPresent(Int.self, forKey: .id)
+    self.definition = try container.decode(MBXCacheRegionDefinition.self, forKey: .definition)
+    self.description = try container.decode(MBXCacheRegionDescription.self, forKey: .description)
+    
+    // First try decoding a nested "assets" field, and then try decoding
+    // the cached asset keys directly from this object (this handles database row decoding)
+    self.cachedAssets = try container.decodeIfPresent(CachedAssetsInfo.self, forKey: .cachedAssets)
+    ?? (try? decoder.singleValueContainer().decode(CachedAssetsInfo.self))
+  }
+  
+}
+
+struct CacheRegionsInfo: Content {
+  let regions: [MBXCacheRegion]
+  let assets: CachedAssetsInfo
 }

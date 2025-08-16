@@ -11,20 +11,6 @@ export function useReconnectableWebSocket(baseURL: string, options = {}) {
     uri = `${protocol}//${host}${uri}`;
   }
   uri = uri.replace(/^http(s)?:\/\//, "ws$1://");
-  console.log(uri);
-
-  const getSocketUrl: () => Promise<string> = useCallback(() => {
-    return new Promise((resolve) => {
-      let uri = baseURL;
-      // Get absolute and websocket URL
-      if (!uri.startsWith("http")) {
-        const { protocol, host } = window.location;
-        uri = `${protocol}//${host}${uri}`;
-      }
-      uri = uri.replace(/^http(s)?:\/\//, "ws$1://");
-      resolve(uri);
-    });
-  }, [baseURL]);
 
   const socket = useWebSocket(uri, {
     shouldReconnect() {

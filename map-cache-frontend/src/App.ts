@@ -19,6 +19,7 @@ import {
   mapAtom,
   mapPositionAtom,
   mapStyleAtom,
+  useCacheWebSocket,
 } from "./state.ts";
 import { useMapStyleOperator } from "@macrostrat/mapbox-react";
 import { setGeoJSON } from "@macrostrat/mapbox-utils";
@@ -39,8 +40,8 @@ export default function App() {
   const [transformRequest] = useAtom(requestTransformerAtom);
   const [basemap, setBasemap] = useAtom(basemapAtom);
   const [refreshCounter] = useAtom(refreshForceAtom);
-
   const [style] = useAtom(mapStyleAtom);
+  useCacheWebSocket();
 
   const detailPanel = h(
     DetailsPanel,

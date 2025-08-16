@@ -15,12 +15,16 @@ import { getMapboxStyle, mergeStyles } from "@macrostrat/mapbox-utils";
 import {
   type CacheCreationInfo,
   type CacheData,
+  type CacheRegionProgress,
+  type DownloadProgressData,
   MapCacheLayer,
+  type MapCacheListing,
   MapCachePriority,
 } from "./cache-list/types.ts";
 import { getNamedLocation } from "./utils.ts";
 import { geologyStyleFragment } from "./cache-list/map-style";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
+import { useReconnectableWebSocket } from "./cache-list/web-socket.ts";
 
 export const cacheModeAtom = atomWithHash<MapCachePriority>(
   "map-cache-mode",
@@ -213,6 +217,62 @@ export const newCacheDataAtom = atom<Promise<CacheFormData>>(async (get) => {
   };
 });
 
+const downloadProgressAtom = atom<DownloadProgressData>({});
+
+export function useDownloadProgress(
+  regionID: number,
+): CacheRegionProgress | null {
+  return useAtomValue(downloadProgressAtom)[regionID] ?? null;
+}
+
+type PartialProgress = Omit<CacheRegionProgress, "progress">;
+
+const downloadProgressUpdateAtom = atom(
+  null,
+  (get, set, value: PartialProgress) => {
+    const progress = get(downloadProgressAtom);
+    set(downloadProgressAtom, {
+      ...progress,
+      [value.regionID]: extendProgress(value),
+    });
+  },
+);
+
+function extendProgress(progress: PartialProgress): CacheRegionProgress {
+  return {
+    ...progress,
+    progress:
+      (progress.tilesDownloaded + progress.resourcesDownloaded) /
+      (progress.tilesTotal + progress.resourcesTotal),
+  };
+}
+
+export function useCacheRegions(): MapCacheListing[] {
+  // Hook to get the list of cache regions with progress
+  return useAtomValue(cacheDataAtom)?.regions ?? [];
+}
+
+export function useCacheWebSocket() {
+  const webSocket = useReconnectableWebSocket(
+    cacheAPIBaseURL + "/regions/events",
+  );
+
+  const setDownloadProgress = useSetAtom(downloadProgressUpdateAtom);
+
+  useEffect(() => {
+    const msg = webSocket.lastJsonMessage as CacheRegionProgress | null;
+    if (msg == null) {
+      return;
+    }
+    console.log("WebSocket message received:", msg);
+    setDownloadProgress(msg);
+  }, [webSocket.lastJsonMessage]);
+
+  useEffect(() => {
+    console.log("Status:", webSocket.readyState);
+  }, [webSocket.readyState]);
+}
+
 const cacheStyleJSONAtom = atom<Promise<StyleSpecification[]>>(async (get) => {
   /** A list of style JSON files that can be used to define the cache */
   const geology = geologyStyleFragment as StyleSpecification;
@@ -318,7 +378,9 @@ export async function createCache(data: CacheCreationInfo) {
 export const useCacheDeleteCallback = (id: number) => {
   const refreshCaches = useSetAtom(cacheDataAtom);
   return useCallback(() => {
-    deleteCache(id).then(() => refreshCaches());
+    deleteCache(id)
+      .then(() => refreshCaches())
+      .catch(console.error);
   }, [id]);
 };
 

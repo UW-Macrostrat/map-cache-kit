@@ -211,8 +211,5 @@ func downloadNewTilesForCacheRegion() async throws {
       res1.resourcesFailed == 0,
       "There should be no resources that failed to download"
     )
-    
-  
-    
   }
 }

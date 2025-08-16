@@ -1,19 +1,14 @@
 import m from "@macrostrat/hyper";
-import type {
-  CacheCreationData,
-  MapCacheListing,
-  OfflineRegionStatus,
-  ResourceInfo,
-} from "./types";
+import type { MapCacheListing, ResourceInfo } from "./types";
 import { MapCachePriority } from "./types";
 import { CacheMap } from "./cache-map";
-import { useState, memo, useEffect } from "react";
+import { useState, memo } from "react";
 import { findGlobalCache, isGlobalCache, isStyleCache } from "./utils";
-import { useReconnectableWebSocket } from "./web-socket.ts";
 import {
   Button,
   Card,
   FormGroup,
+  ProgressBar,
   SegmentedControl,
   Spinner,
   Switch,
@@ -24,14 +19,13 @@ import {
   cacheDataAtom,
   mapAtom,
   showCacheFormAtom,
-  cacheAPIBaseURL,
-  type CacheFormData,
   newCacheDataAtom,
   cacheLayersAtom,
   useCacheCreateCallback,
   useCacheDeleteCallback,
+  useDownloadProgress,
 } from "../state.ts";
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { bbox } from "@turf/bbox";
 import type { LngLatBoundsLike } from "mapbox-gl";
 
@@ -42,9 +36,7 @@ export function CachePanelView({ dispatch }) {
   }
 
   const caches = data.regions ?? [];
-
   const totalSize = data.assets.tile_size + data.assets.resource_size;
-
   const hasGlobalCache = findGlobalCache(caches ?? []) != null;
 
   return m("div.cache-list-panel", [
@@ -60,7 +52,8 @@ function CacheList({ caches, dispatch }: { caches: MapCacheListing[] }) {
     return m("div.cache-list-empty", m(Spinner));
   }
 
-  const _caches = caches.filter((c) => !isStyleCache(c));
+  let _caches = caches.filter((c) => !isStyleCache(c));
+  _caches.reverse();
 
   if (_caches.length == 0) {
     return m("div.cache-list-empty", m("div.ion-label", "No caches"));
@@ -86,19 +79,7 @@ function NewCacheForm() {
   const [showForm, setShowForm] = useAtom(showCacheFormAtom);
   const [cacheData] = useAtom(newCacheDataAtom);
   const [cacheLayers, setCacheLayers] = useAtom(cacheLayersAtom);
-
   const onClick = useCacheCreateCallback();
-
-  const webSocket = useReconnectableWebSocket(
-    cacheAPIBaseURL + "/regions/events",
-  );
-  useEffect(() => {
-    console.log("WebSocket:", webSocket.lastMessage);
-  }, [webSocket.lastMessage]);
-
-  useEffect(() => {
-    console.log("WebSocket status:", webSocket.lastMessage);
-  }, [webSocket.readyState]);
 
   if (!showForm) {
     return m(
@@ -163,7 +144,9 @@ function CacheItem({
   cache: MapCacheListing;
   dispatch(action: CacheManagementAction): void;
 }) {
-  const isDownloading = cache.offlineStatus?.downloadState == "active";
+  const downloadStatus = useDownloadProgress(cache.id);
+  const progress = downloadStatus?.progress ?? 1;
+  const isDownloading = progress < 1;
   const [uiState, setUIState] = useState<CacheUIState>();
   const isGlobal = isGlobalCache(cache);
 
@@ -203,12 +186,21 @@ function CacheItem({
           ]),
           m("div.ion-card-content", [
             m(CacheLayers, { layers: cache.description?.layers }),
-            m(CacheStatus, { cache }),
+            m("div.cache-status", [
+              m.if(isDownloading)(ProgressBar, {
+                value: progress,
+                stripes: false,
+                intent: "primary",
+              }),
+              m("p.flex-row", [
+                m(CacheSizes, { ...cache.assets }),
+                m("span.spacer"),
+                m.if(!isDownloading)(CacheDateBlock, { cache }),
+              ]),
+            ]),
           ]),
           m(CacheControlActionButtons, {
-            dispatch: interceptedDispatch,
             cacheId: cache.id,
-            isDownloading,
           }),
         ]),
         m(_Map, {
@@ -286,14 +278,6 @@ function CacheLayers({ layers }) {
   ]);
 }
 
-function CacheDownloadState({ data }: { data: OfflineRegionStatus }) {
-  if (data?.downloadState != "active") return null;
-  const expected = data.requiredResourceCount + data.requiredTileCount;
-  const completed = data.completedResourceCount + data.completedTileCount;
-  const value = completed / expected;
-  return m("div", [m("div.ion-progress-bar", { value })]);
-}
-
 function CacheDate({ date }) {
   return m("span.date", date.toLocaleString().split(",")[0]);
 }
@@ -308,21 +292,6 @@ function CacheDateBlock({ cache }) {
   }
 
   return m("span.date-block", [m("em", m(CacheDate, { date }))]);
-}
-
-function CacheStatus({ cache }) {
-  const isDownloading = cacheIsDownloading(cache);
-
-  return m("div.cache-status", [
-    m.if(isDownloading)(CacheDownloadState, {
-      data: cache.offlineStatus,
-    }),
-    m("p.flex-row", [
-      m(CacheSizes, { ...cache.assets }),
-      m("span.spacer"),
-      m.if(!isDownloading)(CacheDateBlock, { cache }),
-    ]),
-  ]);
 }
 
 function CacheControlActionButtons({ cacheId }) {

@@ -68,10 +68,24 @@ export interface MapCacheListing {
     geometry: GeoJSON.Geometry;
   };
   assets?: ResourceInfo;
-  offlineStatus?: OfflineRegionStatus;
+  status?: CacheRegionProgress;
 }
 
 export interface CacheData {
   regions: MapCacheListing[];
   assets: ResourceInfo;
 }
+
+export interface CacheRegionProgress {
+  regionID: number;
+  resourcesDownloaded: number;
+  resourcesFailed: number;
+  resourcesTotal: number;
+  tilesDownloaded: number;
+  tilesTotal: number;
+  tilesFailed: number;
+  isFinished: boolean;
+  progress: number; // A value between 0 and 1 representing the overall progress
+}
+
+export type DownloadProgressData = Record<number, CacheRegionProgress>;
