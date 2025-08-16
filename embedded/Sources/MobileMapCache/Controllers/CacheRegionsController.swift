@@ -212,7 +212,11 @@ struct CacheRegionsController: RouteCollection {
 
     regions.get(use: self.index)
     regions.post(use: self.create)
-    regions.webSocket("events", onUpgrade: self.webSocket)
+    regions.webSocket("events") { req, ws async in
+      await connectionManager.add(ws)
+    }
+    
+    
     regions.post(":id", "download", use: self.downloadAssets)
     regions.post(":id", "cancel", use: self.cancelRegionDownload)
     regions.delete(":id", use: self.deleteCacheRegion)
@@ -349,7 +353,13 @@ struct CacheRegionsController: RouteCollection {
    
     app.logger.info("Starting download for region \(regionID)...")
     
-    _ = try await MobileMapCache.downloadRegionAssets(with: app, using: regionDefinition, regionID: regionID) { progress in
+    _ = try await MobileMapCache
+      .downloadRegionAssets(
+        with: app,
+        using: regionDefinition,
+        regionID: regionID,
+        options: ResourceFindOptions()
+      ) { progress in
 //      app.logger
 //        .info("""
 //          Downloading region \(regionID):
@@ -362,26 +372,6 @@ struct CacheRegionsController: RouteCollection {
         return
       }
       try await self.connectionManager.sendToAll(msg)
-    }
-  }
-
-  func webSocket(request: Request, ws: WebSocket) {
-    // Add the new WebSocket connection to your connection manager
-    Task {
-      await self.connectionManager.add(ws)
-      request.logger.info("WebSocket connected")
-    }
-    
-    ws.onClose.whenComplete { result in
-      Task {
-        await self.connectionManager.remove(ws)
-      }
-      switch result {
-      case .success:
-        request.logger.info("WebSocket closed")
-      case .failure(let error):
-        request.logger.info("WebSocket closed with error: \(error)")
-      }
     }
   }
   

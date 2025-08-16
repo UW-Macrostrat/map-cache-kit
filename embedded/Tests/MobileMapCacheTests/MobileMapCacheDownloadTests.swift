@@ -59,10 +59,14 @@ struct MobileMapCacheDownloadTests {
         maxZoom: 1,
         pixelRatio: 2,
         glyphsRasterization: 1,
-        geometry: try worldPolygon()
+        geometry: try worldPolygon(),
       )
       
-      let regionInfo = try await getRegionAssets(with: app, using: def)
+      let regionInfo = try await getRegionAssets(
+        with: app,
+        using: def,
+        options: ResourceFindOptions(maxCodePoint: 255)
+      )
       
       #expect(regionInfo.tiles.tilesAlreadyDownloaded.count == 13, "There should be 18 tiles already downloaded for the region")
       #expect(regionInfo.tiles.tilesToDownload.isEmpty, "There should be no tiles to download for the region")
@@ -94,7 +98,7 @@ struct MobileMapCacheDownloadTests {
       let def = CacheRegionDefinition(styles: [styleData], minZoom: 0, maxZoom: 2, pixelRatio: 2, glyphsRasterization: 1, geometry: polygon)
       
       // Get the assets for the new region
-      let regionInfo = try await getRegionAssets(with: app, using: def)
+      let regionInfo = try await getRegionAssets(with: app, using: def, options: ResourceFindOptions(maxCodePoint: 255))
       
       #expect(regionInfo.tiles.tilesAlreadyDownloaded.count == 7, "There should be 13 tiles already downloaded for the region")
       #expect(regionInfo.tiles.tilesToDownload.count == 6, "There should be 5 tiles to download for the region")
@@ -125,7 +129,7 @@ func downloadNewTilesForCacheRegion() async throws {
       geometry: try worldPolygon()
     )
     
-    let regionInfo = try await getRegionAssets(with: app, using: def)
+    let regionInfo = try await getRegionAssets(with: app, using: def, options: ResourceFindOptions(maxCodePoint: 255))
     
     #expect(regionInfo.tiles.tilesAlreadyDownloaded.isEmpty, "There should be no tiles already downloaded for the region")
     #expect(regionInfo.tiles.tilesToDownload.count == 13, "There should be 13 tiles to download for the region")
@@ -182,7 +186,12 @@ func downloadNewTilesForCacheRegion() async throws {
     
     #expect(try app.config.mapboxAPIToken != nil, "Mapbox API token should be set in the application config")
     
-    let res1 = try await downloadRegionAssets(with: app, using: def, regionId: regionID)
+    let res1 = try await downloadRegionAssets(
+      with: app,
+      using: def,
+      regionID: regionID,
+      options: ResourceFindOptions(maxCodePoint: 255)
+    )
     
     #expect(
       res1.tilesDownloaded == 13,

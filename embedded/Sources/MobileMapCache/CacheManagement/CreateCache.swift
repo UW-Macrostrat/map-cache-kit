@@ -126,12 +126,15 @@ struct CacheRegionProgress: Content {
 }
 
 func downloadRegionAssets(
-  with app: Application, using definition: CacheRegionDefinition, regionID: Int,
+  with app: Application,
+  using definition: CacheRegionDefinition,
+  regionID: Int,
+  options: ResourceFindOptions,
   onProgress: @escaping (CacheRegionProgress) async throws -> Void = { _ in }
 ) async throws -> CacheRegionProgress {
 
   // Get the assets to download
-  let assets = try await getRegionAssets(with: app, using: definition)
+  let assets = try await getRegionAssets(with: app, using: definition, options: options)
   guard let mapboxToken = try app.config.mapboxAPIToken else {
     throw RuntimeError.configurationError("Mapbox API token is not configured")
   }
@@ -318,12 +321,12 @@ func downloadFile(with app: Application, url: URI) async throws -> ClientRespons
 }
 
 func getRegionAssets(
-  with app: Application, using definition: CacheRegionDefinition
+  with app: Application, using definition: CacheRegionDefinition, options: ResourceFindOptions
 ) async throws -> RegionAssetsPrepareStatus {
   let tiles = try await getTilesToDownload(with: app, using: definition)
 
   // Get the resources to download
-  let resources = try await getResourcesToDownload(with: app, using: definition)
+  let resources = try await getResourcesToDownload(with: app, using: definition, options: options)
   app.logger
     .info("""
           Assets to download:
@@ -412,7 +415,7 @@ struct ExistingAssetInfo: Content {
 }
 
 func getResourcesToDownload(
-  with app: Application, using definition: CacheRegionDefinition
+  with app: Application, using definition: CacheRegionDefinition, options: ResourceFindOptions
 ) async throws -> RegionResourceInfo {
   var resources: Set<RequestedResource> = []
 
@@ -426,7 +429,9 @@ func getResourcesToDownload(
     
     // Could limit the maximum code point here...
     let r1 = try findResourcesRequestedByMapboxStyle(
-      spec: styleSpec, options: ResourceFindOptions())
+      spec: styleSpec,
+      options: options
+    )
     
     resources.formUnion(r1)
   }
@@ -677,7 +682,7 @@ func insertLink(_ db: any SQLDatabase, regionID: Int, tileID: Int) async throws 
   _ = try await db.raw(regionResourceInsert).run()
 }
 
-func getIntersectingTiles(for geom: Geometry, minZoom: Int, maxZoom: Int) throws -> [TileCoord] {
+func getIntersectingTiles(for geom: Geometry, minZoom: Int, maxZoom: Int) throws -> Set<TileCoord> {
   let parentTile = try getParentTile(for: geom)
 
   if minZoom < 0 {
@@ -694,10 +699,6 @@ func getIntersectingTiles(for geom: Geometry, minZoom: Int, maxZoom: Int) throws
     let factor = Double.pow(2, deltaZ)
     let xTile = Int(Double(parentTile.x) * factor)
     let yTile = Int(Double(parentTile.y) * factor)
-
-    // number of tiles at this zoom level
-    let xTiles: Int = max(1 << deltaZ, 1)
-    let yTiles: Int = max(1 << deltaZ, 1)
 
     currentLevelTiles = []
 
@@ -728,7 +729,8 @@ func getIntersectingTiles(for geom: Geometry, minZoom: Int, maxZoom: Int) throws
   }
 
   // Filter tiles that are less than the minimum zoom
-  return tiles.filter { $0.z >= minZoom }
+  let t1 = tiles.filter { $0.z >= minZoom }
+  return Set(t1)
 }
 
 extension TileCoord {

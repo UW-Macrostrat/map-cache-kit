@@ -7,7 +7,7 @@ import type {
 } from "./types";
 import { MapCachePriority } from "./types";
 import { CacheMap } from "./cache-map";
-import { useState, memo } from "react";
+import { useState, memo, useEffect } from "react";
 import { findGlobalCache, isGlobalCache, isStyleCache } from "./utils";
 import { useReconnectableWebSocket } from "./web-socket.ts";
 import {
@@ -88,6 +88,17 @@ function NewCacheForm() {
   const [cacheLayers, setCacheLayers] = useAtom(cacheLayersAtom);
 
   const onClick = useCacheCreateCallback();
+
+  const webSocket = useReconnectableWebSocket(
+    cacheAPIBaseURL + "/regions/events",
+  );
+  useEffect(() => {
+    console.log("WebSocket:", webSocket.lastMessage);
+  }, [webSocket.lastMessage]);
+
+  useEffect(() => {
+    console.log("WebSocket status:", webSocket.lastMessage);
+  }, [webSocket.readyState]);
 
   if (!showForm) {
     return m(

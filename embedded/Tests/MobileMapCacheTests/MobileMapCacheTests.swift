@@ -219,11 +219,11 @@ struct MobileMapCacheTests {
       let fontStackURLs = try getFontStackURLs(styleSpec, fontStacks: Array(fontStacks), ranges: ["0-255"])
       
       for url in fontStackURLs {
-        guard let size = try await findResourceInDatabase(db: app.db, url: url, kind: .font) else {
+        guard let existingAssetInfo = try await findResourceInDatabase(db: app.db, url: url, kind: .font) else {
           throw RuntimeError.invalidArgument("Font stack \(url) not found in database")
         }
         
-        totalSize += size
+        totalSize += existingAssetInfo.size
         
       }
       
@@ -258,11 +258,11 @@ struct MobileMapCacheTests {
   
       var totalSize: Int64 = 0
       for resource in resources {
-        guard let size = try await findResourceInDatabase(db: app.db, url: resource.urlTemplate, kind: resource.kind) else {
+        guard let existingAssetInfo = try await findResourceInDatabase(db: app.db, url: resource.urlTemplate, kind: resource.kind) else {
           throw RuntimeError.invalidArgument("Resource \(resource.urlTemplate) not found in database")
         }
         
-        totalSize += size
+        totalSize += existingAssetInfo.size
         
       }
       
@@ -406,6 +406,49 @@ struct IntersectingTileTests {
     let intersectingTiles2 = try getIntersectingTiles(for: polygon.geometry, minZoom: 0, maxZoom: 2)
     #expect(intersectingTiles2.count == 9)
   }
+  
+  /* echo '[-105, 35, -100, 38]' | uv run morecantile tiles 4
+    [3, 6, 4]
+    and zoom 5
+   [6, 12, 5]
+   [7, 12, 5]
+   and zoom 6
+   [13, 24, 6]
+   [14, 24, 6]
+   [13, 25, 6]
+   [14, 25, 6]
+   */
+  
+  @Test("Get intersecting tiles for polygon 2")
+  func getIntersectingTilesForPolygon2() throws {
+    
+    // Define a polygon that intersects with some tiles
+    let polygonWKT = "POLYGON((-105 35, -105 38, -100 38, -100 35, -105 35))"
+    let polygon = try Polygon(wkt: polygonWKT)
+    
+    // Get intersecting tiles
+    let intersectingTiles = try getIntersectingTiles(for: polygon.geometry, minZoom: 4, maxZoom: 4)
+    #expect(intersectingTiles.count == 1)
+    #expect(intersectingTiles.first == TileCoord(3, 6, 4))
+    
+    // Get intersecting tiles at zoom level 5
+    let intersectingTiles2 = try getIntersectingTiles(for: polygon.geometry, minZoom: 5, maxZoom: 5)
+    #expect(intersectingTiles2.count == 2)
+    
+    let zoom5Tiles = Set([TileCoord(6, 12, 5), TileCoord(7, 12, 5)])
+    #expect(zoom5Tiles.isSubset(of: intersectingTiles2))
+    
+    let intersectingTiles3 = try getIntersectingTiles(for: polygon.geometry, minZoom: 6, maxZoom: 6)
+    #expect(intersectingTiles3.count == 4)
+    let zoom6Tiles = Set([
+      TileCoord(13, 24, 6),
+      TileCoord(14, 24, 6),
+      TileCoord(13, 25, 6),
+      TileCoord(14, 25, 6)
+    ])
+    #expect(zoom6Tiles.isSubset(of: intersectingTiles3), "Intersecting tiles at zoom 6 should match expected tiles")
+  }
+  
   
   @Test("Get intersecting tiles for entire Web Mercator world")
   func getIntersectingTilesForWorld() throws {

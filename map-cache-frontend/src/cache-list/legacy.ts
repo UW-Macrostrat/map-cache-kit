@@ -1,7 +1,6 @@
 import { Component } from "@angular/core";
 import { AlertController, ModalController } from "@ionic/angular";
 import { CacheSystemStatus, MapCacheService } from "../map-cache.service";
-import { CacheSystemInfo } from "../models";
 import { CacheCreateModal, CacheFormData } from "../cache-create";
 import { MapCachePriority } from "../models";
 import { RockdComponent } from "~/components";
@@ -27,7 +26,7 @@ export class MapCachesPage extends RockdComponent {
   constructor(
     private cacheService: MapCacheService,
     public alertCtrl: AlertController,
-    private modalController: ModalController
+    private modalController: ModalController,
   ) {
     super();
 
