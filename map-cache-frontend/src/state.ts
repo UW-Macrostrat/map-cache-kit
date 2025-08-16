@@ -225,7 +225,7 @@ export function useDownloadProgress(
   return useAtomValue(downloadProgressAtom)[regionID] ?? null;
 }
 
-type PartialProgress = Omit<CacheRegionProgress, "progress">;
+type PartialProgress = Omit<CacheRegionProgress, "progress" | "hasErrors">;
 
 const downloadProgressUpdateAtom = atom(
   null,
@@ -242,8 +242,12 @@ function extendProgress(progress: PartialProgress): CacheRegionProgress {
   return {
     ...progress,
     progress:
-      (progress.tilesDownloaded + progress.resourcesDownloaded) /
+      (progress.tilesDownloaded +
+        progress.resourcesDownloaded +
+        progress.tilesFailed +
+        progress.resourcesFailed) /
       (progress.tilesTotal + progress.resourcesTotal),
+    hasErrors: progress.tilesFailed + progress.resourcesFailed > 0,
   };
 }
 

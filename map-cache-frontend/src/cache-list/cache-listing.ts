@@ -1,5 +1,9 @@
 import m from "@macrostrat/hyper";
-import type { MapCacheListing, ResourceInfo } from "./types";
+import type {
+  CacheRegionProgress,
+  MapCacheListing,
+  ResourceInfo,
+} from "./types";
 import { MapCachePriority } from "./types";
 import { CacheMap } from "./cache-map";
 import { useState, memo } from "react";
@@ -8,6 +12,7 @@ import {
   Button,
   Card,
   FormGroup,
+  Intent,
   ProgressBar,
   SegmentedControl,
   Spinner,
@@ -47,7 +52,7 @@ export function CachePanelView({ dispatch }) {
   ]);
 }
 
-function CacheList({ caches, dispatch }: { caches: MapCacheListing[] }) {
+function CacheList({ caches }: { caches: MapCacheListing[] }) {
   if (caches == null) {
     return m("div.cache-list-empty", m(Spinner));
   }
@@ -67,7 +72,6 @@ function CacheList({ caches, dispatch }: { caches: MapCacheListing[] }) {
         return m(CacheItem, {
           key: cache.id,
           cache,
-          dispatch,
         });
       }),
     ),
@@ -137,27 +141,15 @@ function NewCacheForm() {
 
 const _Map = memo(CacheMap);
 
-function CacheItem({
-  cache,
-  dispatch,
-}: {
-  cache: MapCacheListing;
-  dispatch(action: CacheManagementAction): void;
-}) {
+function CacheItem({ cache }: { cache: MapCacheListing }) {
   const downloadStatus = useDownloadProgress(cache.id);
   const progress = downloadStatus?.progress ?? 1;
   const isDownloading = progress < 1;
-  const [uiState, setUIState] = useState<CacheUIState>();
+
+  const [uiState] = useState<CacheUIState>();
   const isGlobal = isGlobalCache(cache);
 
   const [map] = useAtom(mapAtom);
-
-  const interceptedDispatch = (action: CacheManagementAction) => {
-    if (action.type === "delete") {
-      setUIState("deleting");
-    }
-    dispatch(action);
-  };
 
   const onClick = () => {
     if (map == null) return;
@@ -190,10 +182,15 @@ function CacheItem({
               m.if(isDownloading)(ProgressBar, {
                 value: progress,
                 stripes: false,
-                intent: "primary",
+                intent:
+                  (downloadStatus?.hasErrors ?? false)
+                    ? Intent.WARNING
+                    : Intent.PRIMARY,
               }),
               m("p.flex-row", [
-                m(CacheSizes, { ...cache.assets }),
+                m(CacheSizes, {
+                  ...getBestResourceInfo(cache.assets, downloadStatus),
+                }),
                 m("span.spacer"),
                 m.if(!isDownloading)(CacheDateBlock, { cache }),
               ]),
@@ -203,10 +200,10 @@ function CacheItem({
             cacheId: cache.id,
           }),
         ]),
-        m(_Map, {
-          geometry: cache.definition.geometry,
-          onClick,
-        }),
+        // m(_Map, {
+        //   geometry: cache.definition.geometry,
+        //   onClick,
+        // }),
       ]),
     ],
   );
@@ -337,6 +334,26 @@ function AddGlobalCacheButton({ dispatch }) {
 
 function IconButton({ icon, onClick, color, children, ...rest }) {
   return m(Button, { size: "small", icon, color, onClick, ...rest }, children);
+}
+
+function getBestResourceInfo(
+  assets: ResourceInfo | null,
+  status: CacheRegionProgress | null,
+): ResourceInfo | null {
+  if (status != null) {
+    return {
+      tile_count: status.tilesDownloaded + status.tilesInitiallyDownloaded,
+      tile_size: status.tilesDownloadedSize, // Tile size is not provided in the status
+      resource_count:
+        status.resourcesDownloaded + status.resourcesInitiallyDownloaded,
+      resource_size: status.resourcesDownloadedSize, // Resource size is not provided in the status
+      expected_tile_count: status.tilesTotal,
+    };
+  }
+  if (assets != null) {
+    return assets;
+  }
+  return null;
 }
 
 function CacheSizes({

@@ -111,12 +111,17 @@ struct DownloadResult {
 struct CacheRegionProgress: Content {
   let regionID: Int
   let resourcesDownloaded: Int
+  let resourcesInitiallyDownloaded: Int
   let resourcesFailed: Int
   let resourcesTotal: Int
+  let resourcesDownloadedSize: Int64
   let tilesDownloaded: Int
+  let tilesInitiallyDownloaded: Int
   let tilesTotal: Int
   let tilesFailed: Int
+  let tilesDownloadedSize: Int64
   let isFinished: Bool
+  let lastErrorMessage: String?
   
   var progress: Double {
     let total = Double(resourcesTotal + tilesTotal)
@@ -199,7 +204,7 @@ func downloadRegionAssets(
         try Task.checkCancellation()
         do {
           let res = try await downloadFile(with: app, url: uri)
-          app.logger.info("Tile \(uri): \(res.status)")
+          app.logger.debug("Tile \(uri): \(res.status)")
           
           var data: Data? = nil
           switch res.status {
@@ -229,22 +234,29 @@ func downloadRegionAssets(
     
     // Download tiles
     var downloadedTiles = 0
+    var downloadedTilesSize: Int64 = 0
     var failedTiles = 0
     let totalTiles = assets.tiles.tilesToDownload.count
     // Download resources
     var downloadedResources = 0
+    var downloadedResourcesSize: Int64 = 0
     var failedResources = 0
     let totalResources = assets.resources.resourcesToDownload.count
     
     let initialProgress = CacheRegionProgress(
       regionID: regionID,
       resourcesDownloaded: 0,
+      resourcesInitiallyDownloaded: assets.resources.resourcesAlreadyDownloaded.count,
       resourcesFailed: 0,
       resourcesTotal: totalResources,
+      resourcesDownloadedSize: 0,
       tilesDownloaded: 0,
+      tilesInitiallyDownloaded: assets.tiles.tilesAlreadyDownloaded.count,
       tilesTotal: totalTiles,
       tilesFailed: 0,
-      isFinished: false
+      tilesDownloadedSize: 0,
+      isFinished: false,
+      lastErrorMessage: nil
     )
     
     try await onProgress(initialProgress)
@@ -255,6 +267,7 @@ func downloadRegionAssets(
     // Handle completed downloads
     var nTasks = 0
     for try await result in taskGroup {
+      let errorMessage: String?
       switch result.result {
       case .success(let data):
         switch result.request {
@@ -268,6 +281,7 @@ func downloadRegionAssets(
             pixelRatio: definition.pixelRatio
           )
           downloadedTiles += 1
+          downloadedTilesSize += Int64(data?.count ?? 0)
         case .resource(let resource):
           guard let data else {
             throw RuntimeError.invalidArgument(
@@ -279,8 +293,11 @@ func downloadRegionAssets(
             compressed: false, kind: resource.kind, regionID: regionID
           )
           downloadedResources += 1
+          downloadedResourcesSize += Int64(data.count)
         }
-      case .failure(_):
+        errorMessage = nil
+      case .failure(let error):
+        errorMessage = error.localizedDescription
         switch result.request {
         case .tile:
           failedTiles += 1
@@ -292,12 +309,17 @@ func downloadRegionAssets(
       let val  = CacheRegionProgress(
         regionID: regionID,
         resourcesDownloaded: downloadedResources,
+        resourcesInitiallyDownloaded: assets.resources.resourcesAlreadyDownloaded.count,
         resourcesFailed: failedResources,
         resourcesTotal: totalResources,
+        resourcesDownloadedSize: downloadedResourcesSize,
         tilesDownloaded: downloadedTiles,
+        tilesInitiallyDownloaded: assets.tiles.tilesAlreadyDownloaded.count,
         tilesTotal: totalTiles,
         tilesFailed: failedTiles,
-        isFinished: taskGroup.isEmpty
+        tilesDownloadedSize: downloadedTilesSize,
+        isFinished: taskGroup.isEmpty,
+        lastErrorMessage: errorMessage
       )
       
       nTasks += 1
@@ -314,8 +336,14 @@ func downloadRegionAssets(
 
 func downloadFile(with app: Application, url: URI) async throws -> ClientResponse {
   let client = app.client
-  app.logger.info("Downloading \(url)")
-  return try await client.get(url)
+  app.logger.debug("Downloading \(url)")
+  do {
+    let res = try await client.get(url)
+    return res
+  } catch let error {
+    app.logger.error("Failed to download \(url): \(error)")
+    throw error
+  }
 }
 
 func getRegionAssets(

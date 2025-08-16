@@ -46,6 +46,7 @@ export interface ResourceInfo {
   tile_size: number;
   resource_count: number;
   resource_size: number;
+  expected_tile_count?: number; // Optional, used for progress tracking
 }
 
 /* This struct comes from Mapbox's internal config */
@@ -79,13 +80,19 @@ export interface CacheData {
 export interface CacheRegionProgress {
   regionID: number;
   resourcesDownloaded: number;
+  resourcesDownloadedSize: number;
+  resourcesInitiallyDownloaded: number; // Total resources that were initially downloaded
   resourcesFailed: number;
   resourcesTotal: number;
   tilesDownloaded: number;
+  tilesDownloadedSize: number;
+  tilesInitiallyDownloaded: number; // Total tiles that were initially downloaded
   tilesTotal: number;
   tilesFailed: number;
   isFinished: boolean;
   progress: number; // A value between 0 and 1 representing the overall progress
+  lastErrorMessage?: string; // Optional error message if the download failed
+  hasErrors: boolean; // Indicates if there were any errors during the download
 }
 
 export type DownloadProgressData = Record<number, CacheRegionProgress>;

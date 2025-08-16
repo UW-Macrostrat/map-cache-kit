@@ -219,7 +219,7 @@ func createRegion(_ db: any SQLDatabase, region: MBXCacheRegion) async throws ->
 
 struct DeletedAsset: Content {
   let id: Int
-  let size: Int
+  let size: Int?
 }
 
 func deleteUnreferencedAssets(db: any SQLDatabase, log: Logger) async throws {
@@ -245,7 +245,7 @@ func deleteUnreferencedAssets(db: any SQLDatabase, log: Logger) async throws {
   
   let deletedAssets = deletedResources + deletedTiles
   
-  let totalSize = deletedAssets.reduce(0) { $0 + $1.size }
+  let totalSize = deletedAssets.reduce(0) { $0 + ($1.size ?? 0) }
   let totalCount = deletedAssets.count
   
   log.info("Deleted \(totalCount) unreferenced assets, total size: \(totalSize) bytes")
