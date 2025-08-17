@@ -2952,6 +2952,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"jotai-cache@npm:^0.5.0":
+  version: 0.5.0
+  resolution: "jotai-cache@npm:0.5.0"
+  peerDependencies:
+    jotai: ">=2.0.0"
+  checksum: 10c0/6a351d0226e02b9e4187125ef33dd6587366875a5152281474397fa1734756ca8492f150ea2da93020232658aae227764c5a652e7f241e6add5e86130426f0d9
+  languageName: node
+  linkType: hard
+
 "jotai-location@npm:^0.6.1":
   version: 0.6.1
   resolution: "jotai-location@npm:0.6.1"
@@ -3183,6 +3192,7 @@ __metadata:
     globals: "npm:^16.0.0"
     immutability-helper: "npm:^3.1.1"
     jotai: "npm:^2.13.1"
+    jotai-cache: "npm:^0.5.0"
     jotai-location: "npm:^0.6.1"
     mapbox-gl: "npm:^3.14.0"
     prettier: "npm:^3.5.3"

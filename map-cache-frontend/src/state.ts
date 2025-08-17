@@ -25,6 +25,7 @@ import { getNamedLocation } from "./utils.ts";
 import { geologyStyleFragment } from "./cache-list/map-style";
 import { useCallback, useEffect } from "react";
 import { useReconnectableWebSocket } from "./cache-list/web-socket.ts";
+import { atomWithCache } from "jotai-cache";
 
 export const cacheModeAtom = atomWithHash<MapCachePriority>(
   "map-cache-mode",
@@ -57,8 +58,7 @@ export const basemapAtom = atomWithHash<MapCacheLayer>(
 );
 
 export const cacheAPIBaseURL = import.meta.env.VITE_CACHE_URL;
-
-export const mapboxTokenAtom = atom(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
+const mapboxAccessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
 export const cacheDataAtom = atomWithRefresh(async (get) => {
   const res = await fetch(cacheAPIBaseURL + "/regions");
@@ -188,11 +188,10 @@ export const locationNameAtom = atom<Promise<string>>(async (get, set) => {
   if (location == null) {
     return "Unknown location";
   }
-  const apiKey = get(mapboxTokenAtom);
 
   const { zoom, ...center } = location.target;
 
-  return await getNamedLocation(center as LngLat, zoom, apiKey);
+  return await getNamedLocation(center as LngLat, zoom, mapboxAccessToken);
 });
 
 export const newCacheErrorAtom = atom<string | null>(null);
@@ -302,11 +301,10 @@ const basicStyle = "mapbox://styles/jczaplewski/cl3w3bdai001f14ob27ckmpxz";
 
 function mapboxStyleAtom(style: string) {
   // Atom to get a Mapbox style by its URL
-  return atom<Promise<StyleSpecification>>(
+  return atomWithCache<Promise<StyleSpecification>>(
     async (get): Promise<StyleSpecification> => {
-      const access_token = get(mapboxTokenAtom);
       return (await getMapboxStyle(style, {
-        access_token,
+        access_token: mapboxAccessToken,
       })) as StyleSpecification;
     },
   );
@@ -315,7 +313,7 @@ function mapboxStyleAtom(style: string) {
 const satelliteStyleAtom = mapboxStyleAtom(satelliteStyle);
 const basicStyleAtom = mapboxStyleAtom(basicStyle);
 
-export const mapStyleAtom = atom(async (get) => {
+export const mapStyleAtom = atomWithCache(async (get) => {
   const basemap = get(basemapAtom);
   if (basemap === "satellite") {
     return await get(satelliteStyleAtom);
@@ -326,6 +324,8 @@ export const mapStyleAtom = atom(async (get) => {
   }
   return mergeStyles(basicStyle, geologyStyleFragment);
 });
+
+mapStyleAtom.debugLabel = "mapStyleAtom";
 
 const cacheCreateDataAtom = atom(async (get) => {
   const cache = await get(newCacheDataAtom);

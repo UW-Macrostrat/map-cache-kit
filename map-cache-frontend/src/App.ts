@@ -11,7 +11,7 @@ import styles from "./App.module.sass";
 import "@macrostrat/style-system/dist/style-system.css";
 import "@blueprintjs/core/lib/css/blueprint.css";
 import { FormGroup, SegmentedControl } from "@blueprintjs/core";
-import { Suspense, useState } from "react";
+import { useState } from "react";
 import {
   basemapAtom,
   cacheRegionsGeoJSONAtom,
@@ -41,6 +41,7 @@ export default function App() {
   const [basemap, setBasemap] = useAtom(basemapAtom);
   const [refreshCounter] = useAtom(refreshForceAtom);
   const [style] = useAtom(mapStyleAtom);
+
   useCacheWebSocket();
 
   const detailPanel = h(
@@ -132,6 +133,7 @@ function CacheRegionsLayer() {
   const [geoJSONData] = useAtom(cacheRegionsGeoJSONAtom);
   useMapStyleOperator(
     (map) => {
+      console.log("Setting cache regions GeoJSON data");
       setGeoJSON(map, "cacheRegions", geoJSONData);
     },
     [geoJSONData],

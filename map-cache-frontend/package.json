@@ -23,6 +23,7 @@
     "chroma-js": "^3.1.2",
     "immutability-helper": "^3.1.1",
     "jotai": "^2.13.1",
+    "jotai-cache": "^0.5.0",
     "jotai-location": "^0.6.1",
     "mapbox-gl": "^3.14.0",
     "react": "^19.1.0",

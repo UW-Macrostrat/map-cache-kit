@@ -98,7 +98,7 @@ enum RequestedAsset {
 }
 
 enum DownloadStatus {
-  case success(Data?)
+  case success(Int64)
   case failure(any Error)
 }
 
@@ -154,146 +154,144 @@ func downloadRegionAssets(
   for resource in assets.resources.resourcesAlreadyDownloaded {
     try await insertLink(db, regionID: regionID, resourceID: resource)
   }
+  
+  var downloadTasks: [Task<DownloadResult, any Error>] = []
+  downloadTasks += assets.resources.resourcesToDownload.map { resource in
+    let uri = URI(string: resource.urlTemplate)
+    return Task.detached {
+      try Task.checkCancellation()
+      do {
+        var params = [String: String]()
+        
+        if !resource.thirdParty {
+          params = ["access_token": mapboxToken]
+        }
+        
+        let uri = getDownloadURL(resource, params: params)
+        
+        let res = try await downloadFile(with: app, url: uri)
+        app.logger.info("Resource \(uri): \(res.status)")
+        
+        guard res.status == .ok,
+              let body = res.body,
+              body.readableBytes > 0
+        else {
+          throw RuntimeError.invalidArgument("Failed to download file from \(uri)")
+        }
+        let data = Data(buffer: body)
+        try await persistResource(
+          to: db, url: resource.urlTemplate, data: data,
+          compressed: false, kind: resource.kind, regionID: regionID
+        )
+        return DownloadResult(
+          uri: uri, request: .resource(resource), result: .success(Int64(data.count))
+        )
+        
+      } catch {
+        return DownloadResult(
+          uri: uri, request: .resource(resource), result: .failure(error)
+        )
+      }
+    }
+  }
+  downloadTasks += assets.tiles.tilesToDownload.map { tile in
+    var params: [String: String] = [:]
+    if !tile.thirdParty {
+      params = ["access_token": mapboxToken]
+    }
+    
+    let uri = getDownloadURL(tile: tile, params: params)
+    return Task.detached {
+      try Task.checkCancellation()
+      do {
+        let res = try await downloadFile(with: app, url: uri)
+        app.logger.debug("Tile \(uri): \(res.status)")
+        
+        var data: Data? = nil
+        switch res.status {
+        case .noContent, .notFound:
+          data = nil
+        case .ok:
+          if let body = res.body, body.readableBytes > 0 {
+            data = Data(buffer: body)
+          }
+        default:
+          throw RuntimeError.invalidArgument("Unexpected status code \(res.status) for \(uri)")
+        }
+        
+        try await persistTile(
+          to: db,
+          tile: tile,
+          data: data,
+          // TODO: be more intelligent about compression
+          compressed: false,
+          regionID: regionID,
+          pixelRatio: definition.pixelRatio
+        )
+        
+        return DownloadResult(
+          uri: uri, request: .tile(tile), result: .success(Int64(data?.count ?? 0))
+        )
+      } catch {
+        app.logger.error("Failed to download \(uri): \(error)")
+        return DownloadResult(
+          uri: uri, request: .tile(tile), result: .failure(error)
+        )
+      }
+    }
+  }
 
-  // Download new tiles and resources
+  // Download tiles
+  var downloadedTiles = 0
+  var downloadedTilesSize: Int64 = 0
+  var failedTiles = 0
+  let totalTiles = assets.tiles.tilesToDownload.count
+  // Download resources
+  var downloadedResources = 0
+  var downloadedResourcesSize: Int64 = 0
+  var failedResources = 0
+  let totalResources = assets.resources.resourcesToDownload.count
+  
+  let initialProgress = CacheRegionProgress(
+    regionID: regionID,
+    resourcesDownloaded: 0,
+    resourcesInitiallyDownloaded: assets.resources.resourcesAlreadyDownloaded.count,
+    resourcesFailed: 0,
+    resourcesTotal: totalResources,
+    resourcesDownloadedSize: 0,
+    tilesDownloaded: 0,
+    tilesInitiallyDownloaded: assets.tiles.tilesAlreadyDownloaded.count,
+    tilesTotal: totalTiles,
+    tilesFailed: 0,
+    tilesDownloadedSize: 0,
+    isFinished: false,
+    lastErrorMessage: nil
+  )
+  
+  try await onProgress(initialProgress)
+  
+  var lastVal = initialProgress
+  
   return try await withThrowingTaskGroup(of: DownloadResult.self) { taskGroup in
-    for resource in assets.resources.resourcesToDownload {
-      let uri = URI(string: resource.urlTemplate)
-
-      taskGroup.addTask {
-        try Task.checkCancellation()
-        do {
-          var params = [String: String]()
-          
-          if !resource.thirdParty {
-            params = ["access_token": mapboxToken]
-          }
-          
-          let uri = getDownloadURL(resource, params: params)
-          
-          let res = try await downloadFile(with: app, url: uri)
-          app.logger.info("Resource \(uri): \(res.status)")
-          
-          guard res.status == .ok,
-                let body = res.body,
-                body.readableBytes > 0
-          else {
-            throw RuntimeError.invalidArgument("Failed to download file from \(uri)")
-          }
-          let data = Data(buffer: body)
-          return DownloadResult(
-            uri: uri, request: .resource(resource), result: .success(data)
-          )
-
-        } catch {
-          return DownloadResult(
-            uri: uri, request: .resource(resource), result: .failure(error)
-          )
-        }
-      }
-    }
-
-    for tile in assets.tiles.tilesToDownload {
-      var params: [String: String] = [:]
-      if !tile.thirdParty {
-        params = ["access_token": mapboxToken]
-      }
-      
-      let uri = getDownloadURL(tile: tile, params: params)
-      taskGroup.addTask {
-        try Task.checkCancellation()
-        do {
-          let res = try await downloadFile(with: app, url: uri)
-          app.logger.debug("Tile \(uri): \(res.status)")
-          
-          var data: Data? = nil
-          switch res.status {
-          case .noContent, .notFound:
-            data = nil
-          case .ok:
-            if let body = res.body, body.readableBytes > 0 {
-              data = Data(buffer: body)
-            }
-          default:
-            throw RuntimeError.invalidArgument("Unexpected status code \(res.status) for \(uri)")
-          }
-          
-          return DownloadResult(
-            uri: uri, request: .tile(tile), result: .success(data)
-          )
-
-        } catch {
-          app.logger.error("Failed to download \(uri): \(error)")
-          return DownloadResult(
-            uri: uri, request: .tile(tile), result: .failure(error)
-          )
-        }
-      }
-    }
-
-    
-    // Download tiles
-    var downloadedTiles = 0
-    var downloadedTilesSize: Int64 = 0
-    var failedTiles = 0
-    let totalTiles = assets.tiles.tilesToDownload.count
-    // Download resources
-    var downloadedResources = 0
-    var downloadedResourcesSize: Int64 = 0
-    var failedResources = 0
-    let totalResources = assets.resources.resourcesToDownload.count
-    
-    let initialProgress = CacheRegionProgress(
-      regionID: regionID,
-      resourcesDownloaded: 0,
-      resourcesInitiallyDownloaded: assets.resources.resourcesAlreadyDownloaded.count,
-      resourcesFailed: 0,
-      resourcesTotal: totalResources,
-      resourcesDownloadedSize: 0,
-      tilesDownloaded: 0,
-      tilesInitiallyDownloaded: assets.tiles.tilesAlreadyDownloaded.count,
-      tilesTotal: totalTiles,
-      tilesFailed: 0,
-      tilesDownloadedSize: 0,
-      isFinished: false,
-      lastErrorMessage: nil
-    )
-    
-    try await onProgress(initialProgress)
-    
-    var lastVal = initialProgress
-    
-    
     // Handle completed downloads
+    for task in downloadTasks {
+      taskGroup.addTask {
+        try await task.value
+      }
+    }
+    
     var nTasks = 0
     for try await result in taskGroup {
       let errorMessage: String?
       switch result.result {
-      case .success(let data):
+      case .success(let dataSize):
         switch result.request {
-        case .tile(let tile):
-          try await persistTile(
-            to: db,
-            tile: tile,
-            data: data,
-            compressed: false,
-            regionID: regionID,
-            pixelRatio: definition.pixelRatio
-          )
+        case .tile(_):
           downloadedTiles += 1
-          downloadedTilesSize += Int64(data?.count ?? 0)
-        case .resource(let resource):
-          guard let data else {
-            throw RuntimeError.invalidArgument(
-              "Resource data for \(resource.urlTemplate) is nil"
-            )
-          }
-          try await persistResource(
-            to: db, url: resource.urlTemplate, data: data,
-            compressed: false, kind: resource.kind, regionID: regionID
-          )
+          downloadedTilesSize += dataSize
+        case .resource(_):
           downloadedResources += 1
-          downloadedResourcesSize += Int64(data.count)
+          downloadedResourcesSize += dataSize
         }
         errorMessage = nil
       case .failure(let error):
@@ -335,14 +333,16 @@ func downloadRegionAssets(
 }
 
 func downloadFile(with app: Application, url: URI) async throws -> ClientResponse {
-  let client = app.client
-  app.logger.debug("Downloading \(url)")
-  do {
-    let res = try await client.get(url)
-    return res
-  } catch let error {
-    app.logger.error("Failed to download \(url): \(error)")
-    throw error
+  return try await app.downloadManger.run {
+    let client = app.client
+    app.logger.debug("Downloading \(url)")
+    do {
+      let res = try await client.get(url)
+      return res
+    } catch let error {
+      app.logger.error("Failed to download \(url): \(error)")
+      throw error
+    }
   }
 }
 

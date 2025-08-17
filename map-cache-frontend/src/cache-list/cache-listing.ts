@@ -30,7 +30,7 @@ import {
   useCacheDeleteCallback,
   useDownloadProgress,
 } from "../state.ts";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom } from "jotai";
 import { bbox } from "@turf/bbox";
 import type { LngLatBoundsLike } from "mapbox-gl";
 
