@@ -13,7 +13,7 @@ struct ConfigurationKey: StorageKey {
 }
 
 struct DownloadTaskStoreKey: StorageKey {
-  typealias Value = [Int: Task<Void,Never>]
+  typealias Value = [Int: Task<Void, any Error>]
 }
 
 struct ConcurrentDownloadManagerKey: StorageKey {
@@ -43,7 +43,7 @@ extension Application {
     }
   }
   
-  var taskStore: [Int: Task<Void,Never>] {
+  var taskStore: [Int: Task<Void, any Error>] {
     get {
       self.storage.get(DownloadTaskStoreKey.self) ?? [:]
     }
@@ -52,7 +52,7 @@ extension Application {
     }
   }
   
-  func addDownloadTask(id: Int, task: Task<Void,Never>) {
+  func addDownloadTask(id: Int, task: Task<Void, any Error>) {
     self.taskStore[id] = task
   }
   

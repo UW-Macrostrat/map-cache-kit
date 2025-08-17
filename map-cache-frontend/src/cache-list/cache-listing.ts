@@ -146,7 +146,6 @@ function CacheItem({ cache }: { cache: MapCacheListing }) {
   const progress = downloadStatus?.progress ?? 1;
   const isDownloading = progress < 1;
 
-  const [uiState] = useState<CacheUIState>();
   const isGlobal = isGlobalCache(cache);
 
   const [map] = useAtom(mapAtom);
@@ -161,52 +160,44 @@ function CacheItem({ cache }: { cache: MapCacheListing }) {
     map.fitBounds(_bbox, { duration: 500 });
   };
 
-  return m(
-    "div.ion-card.cache-card",
-    {
-      disabled: uiState == "deleting",
-    },
-    [
-      m("div.flex-row", [
-        m("div.main-column", [
-          m("div.ion-card-header", [
-            m("h2.ion-card-subtitle", [
-              isGlobal
-                ? "Global"
-                : (cache.description?.name ?? "Unnamed cache"),
-            ]),
+  return m("div.ion-card.cache-card", [
+    m("div.flex-row", [
+      m("div.main-column", [
+        m("div.ion-card-header", [
+          m("h2.ion-card-subtitle", [
+            isGlobal ? "Global" : (cache.description?.name ?? "Unnamed cache"),
           ]),
-          m("div.ion-card-content", [
-            m(CacheLayers, { layers: cache.description?.layers }),
-            m("div.cache-status", [
-              m.if(isDownloading)(ProgressBar, {
-                value: progress,
-                stripes: false,
-                intent:
-                  (downloadStatus?.hasErrors ?? false)
-                    ? Intent.WARNING
-                    : Intent.PRIMARY,
-              }),
-              m("p.flex-row", [
-                m(CacheSizes, {
-                  ...getBestResourceInfo(cache.assets, downloadStatus),
-                }),
-                m("span.spacer"),
-                m.if(!isDownloading)(CacheDateBlock, { cache }),
-              ]),
-            ]),
-          ]),
-          m(CacheControlActionButtons, {
-            cacheId: cache.id,
-          }),
         ]),
-        m(_Map, {
-          geometry: cache.definition.geometry,
-          onClick,
+        m("div.ion-card-content", [
+          m(CacheLayers, { layers: cache.description?.layers }),
+          m("div.cache-status", [
+            m.if(isDownloading)(ProgressBar, {
+              value: progress,
+              stripes: false,
+              intent:
+                (downloadStatus?.hasErrors ?? false)
+                  ? Intent.WARNING
+                  : Intent.PRIMARY,
+            }),
+            m("p.flex-row", [
+              m(CacheSizes, {
+                ...getBestResourceInfo(cache.assets, downloadStatus),
+              }),
+              m("span.spacer"),
+              m.if(!isDownloading)(CacheDateBlock, { cache }),
+            ]),
+          ]),
+        ]),
+        m(CacheControlActionButtons, {
+          cacheId: cache.id,
         }),
       ]),
-    ],
-  );
+      m(_Map, {
+        geometry: cache.definition.geometry,
+        onClick,
+      }),
+    ]),
+  ]);
 }
 
 function LabeledControl({ label, children, inline = true }) {

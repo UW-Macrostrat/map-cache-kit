@@ -139,8 +139,10 @@ struct CacheRegionsController: RouteCollection {
         )
       } catch let err {
         app.logger.error("\(err)")
+        throw err
       }
     }
+    app.cancelDownloadTask(id: regionID)
     app.addDownloadTask(id: regionID, task: task)
   }
   
@@ -159,7 +161,6 @@ struct CacheRegionsController: RouteCollection {
     }
     
     let encoder = JSONEncoder()
-    let errorJSON = try encoder.encode(["error": true])
     
     let regionDefinition = try region.asRegionDefinition(styles: styles)
    
@@ -190,6 +191,8 @@ struct CacheRegionsController: RouteCollection {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
     }
     
+    req.application.cancelDownloadTask(id: id)
+
     try await db.raw(
       "DELETE FROM region_resources WHERE region_id = \(bind: id)"
     ).run()
@@ -202,7 +205,8 @@ struct CacheRegionsController: RouteCollection {
 
     try await deleteUnreferencedAssets(db: db, log: req.logger)
     return .noContent
-  }  
+  }
+  
 }
 
 func createRegion(_ db: any SQLDatabase, region: MBXCacheRegion) async throws -> MBXCacheRegion {

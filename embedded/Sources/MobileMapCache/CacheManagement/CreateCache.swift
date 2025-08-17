@@ -108,6 +108,12 @@ struct DownloadResult {
   let result: DownloadStatus
 }
 
+enum CacheDownloadStatus: String, Codable {
+  case pending = "pending"
+  case complete = "complete"
+  case cancelled = "cancelled"
+}
+
 struct CacheRegionProgress: Content {
   let regionID: Int
   let resourcesDownloaded: Int
@@ -122,6 +128,7 @@ struct CacheRegionProgress: Content {
   let tilesDownloadedSize: Int64
   let isFinished: Bool
   let lastErrorMessage: String?
+  let status: CacheDownloadStatus
   
   var progress: Double {
     let total = Double(resourcesTotal + tilesTotal)
@@ -155,10 +162,10 @@ func downloadRegionAssets(
     try await insertLink(db, regionID: regionID, resourceID: resource)
   }
   
-  var downloadTasks: [Task<DownloadResult, any Error>] = []
+  var downloadTasks: [@Sendable () async throws -> DownloadResult] = []
   downloadTasks += assets.resources.resourcesToDownload.map { resource in
     let uri = URI(string: resource.urlTemplate)
-    return Task.detached {
+    return {
       try Task.checkCancellation()
       do {
         var params = [String: String]()
@@ -179,9 +186,12 @@ func downloadRegionAssets(
           throw RuntimeError.invalidArgument("Failed to download file from \(uri)")
         }
         let data = Data(buffer: body)
+        
+        let compressed = compressionAlgorithm(for: data) != nil
+
         try await persistResource(
           to: db, url: resource.urlTemplate, data: data,
-          compressed: false, kind: resource.kind, regionID: regionID
+          compressed: compressed, kind: resource.kind, regionID: regionID
         )
         return DownloadResult(
           uri: uri, request: .resource(resource), result: .success(Int64(data.count))
@@ -201,7 +211,7 @@ func downloadRegionAssets(
     }
     
     let uri = getDownloadURL(tile: tile, params: params)
-    return Task.detached {
+    return {
       try Task.checkCancellation()
       do {
         let res = try await downloadFile(with: app, url: uri)
@@ -219,12 +229,14 @@ func downloadRegionAssets(
           throw RuntimeError.invalidArgument("Unexpected status code \(res.status) for \(uri)")
         }
         
+        let compressed = compressionAlgorithm(for: data) != nil        
+
         try await persistTile(
           to: db,
           tile: tile,
           data: data,
           // TODO: be more intelligent about compression
-          compressed: false,
+          compressed: compressed,
           regionID: regionID,
           pixelRatio: definition.pixelRatio
         )
@@ -240,7 +252,7 @@ func downloadRegionAssets(
       }
     }
   }
-
+  
   // Download tiles
   var downloadedTiles = 0
   var downloadedTilesSize: Int64 = 0
@@ -265,7 +277,8 @@ func downloadRegionAssets(
     tilesFailed: 0,
     tilesDownloadedSize: 0,
     isFinished: false,
-    lastErrorMessage: nil
+    lastErrorMessage: nil,
+    status: .pending
   )
   
   try await onProgress(initialProgress)
@@ -275,14 +288,12 @@ func downloadRegionAssets(
   return try await withThrowingTaskGroup(of: DownloadResult.self) { taskGroup in
     // Handle completed downloads
     for task in downloadTasks {
-      taskGroup.addTask {
-        try await task.value
-      }
+      taskGroup.addTask(operation: task)
     }
     
-    var nTasks = 0
     for try await result in taskGroup {
       let errorMessage: String?
+      var status: CacheDownloadStatus = .pending
       switch result.result {
       case .success(let dataSize):
         switch result.request {
@@ -294,6 +305,7 @@ func downloadRegionAssets(
           downloadedResourcesSize += dataSize
         }
         errorMessage = nil
+        status = .pending
       case .failure(let error):
         errorMessage = error.localizedDescription
         switch result.request {
@@ -302,8 +314,14 @@ func downloadRegionAssets(
         case .resource:
           failedResources += 1
         }
+        if error is CancellationError {
+          status = .cancelled
+        }
       }
       
+      if taskGroup.isEmpty && status != .cancelled {
+        status = .complete
+      }
       let val  = CacheRegionProgress(
         regionID: regionID,
         resourcesDownloaded: downloadedResources,
@@ -317,23 +335,44 @@ func downloadRegionAssets(
         tilesFailed: failedTiles,
         tilesDownloadedSize: downloadedTilesSize,
         isFinished: taskGroup.isEmpty,
-        lastErrorMessage: errorMessage
+        lastErrorMessage: errorMessage,
+        status: status
       )
       
-      nTasks += 1
       lastVal = val
-      
       try await onProgress(val)
-      
+
+      if status == .cancelled {
+        return val
+      }
     }
-    
     return lastVal
-    
   }
+}
+
+func compressionAlgorithm(for data: Data?) -> String? {
+  // Check for magic bytes for deflate compression
+  // NOTE: we may want to support other compression types in the future
+  guard let data = data else {
+    return nil
+  }
+  
+  if data.starts(with: [0x78, 0x9C]) {
+    return "deflate"
+  }
+  if data.starts(with: [0x1F, 0x8B]) {
+    return "gzip"
+  }
+  // zstd
+  if data.starts(with: [0x28, 0xb5, 0x2f, 0xfd]) {
+    return "zstd"
+  }
+  return nil
 }
 
 func downloadFile(with app: Application, url: URI) async throws -> ClientResponse {
   return try await app.downloadManger.run {
+    try Task.checkCancellation()
     let client = app.client
     app.logger.debug("Downloading \(url)")
     do {
@@ -622,6 +661,7 @@ func inferTileURLTemplate(from tileJSONURL: String, sourceType: SourceType) thro
 func persistTile(
   to db: any SQLDatabase, tile: CandidateTile, data: Data?, compressed: Bool, regionID: Int, pixelRatio: Int = 1
 ) async throws {
+  try Task.checkCancellation() // Check if the task has been cancelled
   // Cast to SQLDatabase
   
   // Vector tiles get a pixel ratio of 1

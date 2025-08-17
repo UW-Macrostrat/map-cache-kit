@@ -71,8 +71,8 @@ struct CachedTileController: RouteCollection {
           "X-Cache": "hit",
         ], body: .init(data: cachedResponse.data))
         
-        if cachedResponse.compressed {
-          res.headers.add(name: "Content-Encoding", value: "deflate")
+        if let encoding = compressionAlgorithm(for: cachedResponse.data) {
+          res.headers.add(name: "Content-Encoding", value: encoding)
         }
         
         return res

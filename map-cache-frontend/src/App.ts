@@ -42,8 +42,6 @@ export default function App() {
   const [refreshCounter] = useAtom(refreshForceAtom);
   const [style] = useAtom(mapStyleAtom);
 
-  useCacheWebSocket();
-
   const detailPanel = h(
     DetailsPanel,
     {
@@ -68,15 +66,6 @@ export default function App() {
         },
       },
       layers: [
-        {
-          id: "cacheRegions-fill",
-          type: "fill",
-          source: "cacheRegions",
-          paint: {
-            "fill-color": "#f08",
-            "fill-opacity": 0.1,
-          },
-        },
         {
           id: "cacheRegions-outline",
           type: "line",
@@ -124,9 +113,14 @@ export default function App() {
         ]),
         transformRequest,
       },
-      h(CacheRegionsLayer),
+      [h(CacheRegionsLayer), h(CacheWebsocketConnector)],
     ),
   ]);
+}
+
+function CacheWebsocketConnector() {
+  useCacheWebSocket();
+  return null;
 }
 
 function CacheRegionsLayer() {
