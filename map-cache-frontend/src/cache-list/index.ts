@@ -4,7 +4,7 @@ import type {
   MapCacheListing,
   ResourceInfo,
 } from "./types";
-import { CacheMap } from "./cache-map";
+import { CacheMap, StaticCacheMap } from "./cache-map";
 import { memo } from "react";
 import { findGlobalCache, isGlobalCache, isStyleCache } from "./utils";
 import {
@@ -244,8 +244,8 @@ function CacheItem({ cache }: { cache: MapCacheListing }) {
           cacheId: cache.id,
         }),
       ]),
-      m(_Map, {
-        geometry: cache.definition.geometry,
+      m(StaticCacheMap, {
+        cache,
         onClick,
       }),
     ]),

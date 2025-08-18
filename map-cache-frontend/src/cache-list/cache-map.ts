@@ -3,9 +3,11 @@ import { forwardRef, useEffect, useRef, useState } from "react";
 import { Map, type StyleSpecification } from "mapbox-gl";
 import { baseMapStyles } from "./map-style";
 import { mergeStyles } from "@macrostrat/mapbox-utils";
-import { boundsForPolygon } from "./utils";
+import { boundsForPolygon, isGlobalCache } from "./utils";
 import { useElementSize } from "@macrostrat/ui-components";
 import styles from "./map-caches.module.sass";
+import type { MapCacheListing } from "./types.ts";
+import { Icon } from "@blueprintjs/core";
 
 const h = hyper.styled(styles);
 
@@ -108,12 +110,18 @@ const CacheMapContainer: any = forwardRef((props, ref) =>
   ]),
 );
 
-function buildStaticMapURL(data: any, { width, height }) {
+function buildStaticMapURL(cache: MapCacheListing, { width, height }) {
+  const baseURL =
+    "https://api.mapbox.com/styles/v1/jczaplewski/cl3w3bdai001f14ob27ckmpxz/static/";
   // const bounds = boundsForPolygon(data);
-  let url = `https://api.mapbox.com/styles/v1/jczaplewski/cl3w3bdai001f14ob27ckmpxz/static/`;
-  url += `?access_token=${mapboxToken}&size=${width},${height}`;
+
+  if (isGlobalCache(cache)) {
+    return null;
+  }
+  const geometry = cache.definition.geometry;
+
   const feature = {
-    geometry: data,
+    geometry,
     type: "Feature",
     properties: {
       "fill-color": "#0080ff", // blue color fill
@@ -121,20 +129,38 @@ function buildStaticMapURL(data: any, { width, height }) {
       stroke: "#0080ff",
     },
   };
-  return url + `&overlay=geojson(${JSON.stringify(feature)})`;
+
+  const position =
+    encodeURIComponent(`geojson(${JSON.stringify(feature)})`) + "/auto";
+
+  return (
+    baseURL + `${position}/${width}x${height}@2x?access_token=${mapboxToken}`
+  );
 }
 
 export function StaticCacheMap(props: {
-  geometry: GeoJSON.Polygon;
+  cache: MapCacheListing;
+  size?: number;
   onClick: () => void;
 }) {
-  const src = buildStaticMapURL(props.geometry, { width: 130, height: 130 });
+  const { cache, size = 130 } = props;
+  const width = size;
+  const height = size;
+  const src = buildStaticMapURL(cache, { width, height });
+
+  let inner = null;
+  if (src == null) {
+    inner = h(Icon, { icon: "globe", size: 48 });
+  } else {
+    inner = h("img", { src, width, height });
+  }
+
   return h(
     CacheMapContainer,
     {
       onClick: props.onClick,
     },
-    [h("img", { src })],
+    inner,
   );
 }
 
