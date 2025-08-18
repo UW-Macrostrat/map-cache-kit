@@ -33,7 +33,7 @@ function getTypesForZoom(zoom: number): ResultType[] | null {
   return types;
 }
 
-export async function getNamedLocation(
+export async function getRegionName(
   location: LngLat,
   zoom: number,
   accessToken: string,

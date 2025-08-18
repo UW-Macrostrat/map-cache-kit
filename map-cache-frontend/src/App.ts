@@ -20,12 +20,13 @@ import {
   mapPositionAtom,
   mapStyleAtom,
   useCacheWebSocket,
+  cacheModeAtom,
 } from "./state.ts";
 import { useMapStyleOperator } from "@macrostrat/mapbox-react";
 import { setGeoJSON } from "@macrostrat/mapbox-utils";
 import { CachePanelView } from "./cache-list";
-import { type Atom, atom, useAtom } from "jotai";
-import type { MapCacheLayer } from "./cache-list/types.ts";
+import { type Atom, atom, useAtom, useAtomValue } from "jotai";
+import { type MapCacheLayer, MapCachePriority } from "./cache-list/types.ts";
 
 const h = hyper.styled(styles);
 
@@ -38,8 +39,6 @@ const refreshForceAtom: Atom<number> = atom((get) => {
 
 export default function App() {
   const [transformRequest] = useAtom(requestTransformerAtom);
-  const [basemap, setBasemap] = useAtom(basemapAtom);
-  const [refreshCounter] = useAtom(refreshForceAtom);
   const [style] = useAtom(mapStyleAtom);
 
   const detailPanel = h(
@@ -71,7 +70,7 @@ export default function App() {
           type: "line",
           source: "cacheRegions",
           paint: {
-            "line-color": "#f08",
+            "line-color": "#000",
             "line-width": 2,
             "line-dasharray": [
               "case",
@@ -90,26 +89,14 @@ export default function App() {
     h(
       MapPage,
       {
-        key: refreshCounter,
         mapboxToken,
         style,
         title: "Map caches",
         detailPanel,
         overlayStyles,
         controls: h("div.cache-controls", [
-          h(FormGroup, { label: "Basemap" }, [
-            h(SegmentedControl, {
-              options: [
-                { label: "Basic", value: "basic" },
-                { label: "Satellite", value: "satellite" },
-                { label: "Geology", value: "bedrock" },
-              ],
-              onValueChange: (value) => {
-                setBasemap(value as MapCacheLayer);
-              },
-              value: basemap,
-            }),
-          ]),
+          h(BasemapControl),
+          h(CacheModeControl),
         ]),
         transformRequest,
       },
@@ -136,6 +123,45 @@ function CacheRegionsLayer() {
   return null;
 }
 
+function BasemapControl({ inline = false }) {
+  const [basemap, setBasemap] = useAtom(basemapAtom);
+  return h(FormGroup, { label: "Basemap", inline }, [
+    h(SegmentedControl, {
+      size: "small",
+      options: [
+        { label: "Basic", value: "basic" },
+        { label: "Satellite", value: "satellite" },
+        { label: "Geology", value: "bedrock" },
+      ],
+      onValueChange(value) {
+        setBasemap(value as MapCacheLayer);
+      },
+      value: basemap,
+    }),
+  ]);
+}
+
+function CacheModeControl({ inline = false }) {
+  const [cacheMode, setCacheMode] = useAtom(cacheModeAtom);
+  return h(FormGroup, { label: "Cache mode", inline }, [
+    h(SegmentedControl, {
+      size: "small",
+      options: [
+        { label: "Network", value: MapCachePriority.Network },
+        {
+          label: "Fallback",
+          value: MapCachePriority.CacheThenNetwork,
+        },
+        { label: "Cache", value: MapCachePriority.Cache },
+      ],
+      onValueChange(value: MapCachePriority) {
+        setCacheMode(value);
+      },
+      value: cacheMode,
+    }),
+  ]);
+}
+
 export function MapPage({
   title = "Map inspector",
   headerElement = null,
@@ -159,10 +185,12 @@ export function MapPage({
   const [isOpen, setOpen] = useState(false);
   const [_, onMapLoaded] = useAtom(mapAtom);
   const [__, onMapMoved] = useAtom(mapPositionAtom);
+  const refreshCounter = useAtomValue(refreshForceAtom);
 
   return h(
     MapAreaContainer,
     {
+      key: refreshCounter,
       navbar: h(FloatingNavbar, {
         rightElement: h(MapLoadingButton, {
           large: true,

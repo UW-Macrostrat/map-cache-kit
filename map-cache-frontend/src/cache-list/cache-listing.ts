@@ -4,23 +4,22 @@ import type {
   MapCacheListing,
   ResourceInfo,
 } from "./types";
-import { MapCachePriority } from "./types";
 import { CacheMap } from "./cache-map";
 import { memo } from "react";
 import { findGlobalCache, isGlobalCache, isStyleCache } from "./utils";
 import {
   Button,
+  ButtonGroup,
   Card,
   FormGroup,
+  InputGroup,
   Intent,
   ProgressBar,
-  SegmentedControl,
   Spinner,
   Switch,
 } from "@blueprintjs/core";
 import "./map-caches.scss";
 import {
-  cacheModeAtom,
   cacheDataAtom,
   mapAtom,
   showCacheFormAtom,
@@ -31,8 +30,9 @@ import {
   deleteCache,
   deleteAllCaches,
   createCache,
+  setRegionName,
 } from "../state.ts";
-import { useAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import { bbox } from "@turf/bbox";
 import type { LngLatBoundsLike } from "mapbox-gl";
 import { OverlayToaster } from "@blueprintjs/core";
@@ -47,6 +47,7 @@ const Toaster = await OverlayToaster.createAsync(
 );
 
 export function CachePanelView() {
+  const [showForm, setShowForm] = useAtom(showCacheFormAtom);
   const [data] = useAtom(cacheDataAtom);
   if (data == null) {
     return m("div.cache-list-panel", m(Spinner));
@@ -58,9 +59,25 @@ export function CachePanelView() {
   const totalSize = data.assets.tile_size + data.assets.resource_size;
   const hasGlobalCache = findGlobalCache(_caches) != null;
 
-  return m("div.cache-list-panel", [
+  let topElement = m(ButtonGroup, { vertical: true, large: true }, [
     m.if(!hasGlobalCache)(AddGlobalCacheButton),
-    m(NewCacheForm),
+    m(
+      Button,
+      {
+        icon: "add",
+        onClick: () => setShowForm(true),
+        className: "ion-margin",
+      },
+      "Create new cache",
+    ),
+  ]);
+
+  if (showForm) {
+    topElement = m(NewCacheForm);
+  }
+
+  return m("div.cache-list-panel", [
+    topElement,
     m(CacheList, { caches: _caches }),
     m(CacheSystemControls, { totalSize }),
   ]);
@@ -87,24 +104,17 @@ function CacheList({ caches }: { caches: MapCacheListing[] }) {
 }
 
 function NewCacheForm() {
-  const [showForm, setShowForm] = useAtom(showCacheFormAtom);
   const [cacheData] = useAtom(newCacheDataAtom);
   const [cacheLayers, setCacheLayers] = useAtom(cacheLayersAtom);
-
-  if (!showForm) {
-    return m(
-      Button,
-      {
-        icon: "add",
-        onClick: () => setShowForm(true),
-        className: "ion-margin",
-      },
-      "Create new cache",
-    );
-  }
+  const setShowForm = useSetAtom(showCacheFormAtom);
 
   return m(Card, [
-    m("h3", cacheData.name),
+    m(InputGroup, {
+      value: cacheData.name,
+      onValueChange(value) {
+        setRegionName(value);
+      },
+    }),
     m(LabeledControl, { label: "Layers" }, [
       m("div.cache-layers-checkboxes", [
         ["bedrock", "basemap", "satellite"].map((layer) =>
@@ -124,26 +134,28 @@ function NewCacheForm() {
         ),
       ]),
     ]),
-    m(
-      Button,
-      {
-        icon: "check",
-        intent: "primary",
-        onClick: clickHandler(createCache),
-      },
-      "Create cache",
-    ),
-    m(
-      Button,
-      {
-        icon: "cross",
-        intent: "danger",
-        onClick() {
-          setShowForm(false);
+    m(ButtonGroup, [
+      m(
+        Button,
+        {
+          icon: "map-create",
+          intent: "primary",
+          onClick: clickHandler(createCache),
         },
-      },
-      "Cancel",
-    ),
+        "Create cache",
+      ),
+      m(
+        Button,
+        {
+          icon: "cross",
+          intent: "danger",
+          onClick() {
+            setShowForm(false);
+          },
+        },
+        "Cancel",
+      ),
+    ]),
   ]);
 }
 
@@ -241,38 +253,17 @@ function CacheSystemControls({
         ]),
         m("div.spacer"),
         m(
-          IconButton,
+          Button,
           {
             icon: "trash",
             intent: "danger",
+            size: "large",
             onClick: clickHandler(deleteAllCaches),
           },
           "Delete all",
         ),
       ]),
-      m(CacheModeControl),
     ]),
-  ]);
-}
-
-export function CacheModeControl({ inline = false }) {
-  const [cacheMode, setCacheMode] = useAtom(cacheModeAtom);
-  return m(LabeledControl, { label: "Cache mode", inline }, [
-    m(SegmentedControl, {
-      size: "small",
-      options: [
-        { label: "Network", value: MapCachePriority.Network },
-        {
-          label: "Cache + Network",
-          value: MapCachePriority.CacheThenNetwork,
-        },
-        { label: "Cache", value: MapCachePriority.Cache },
-      ],
-      onValueChange(value: MapCachePriority) {
-        setCacheMode(value);
-      },
-      value: cacheMode,
-    }),
   ]);
 }
 
@@ -302,10 +293,11 @@ function CacheDateBlock({ cache }) {
 function CacheControlActionButtons({ cacheId }) {
   return m("div.ion-row", { class: "ion-padding-start" }, [
     m(
-      IconButton,
+      Button,
       {
         icon: "trash",
         intent: "danger",
+        size: "small",
         onClick: clickHandler(() => deleteCache(cacheId)),
       },
       "Delete",
@@ -315,7 +307,7 @@ function CacheControlActionButtons({ cacheId }) {
 
 function AddGlobalCacheButton() {
   return m(
-    IconButton,
+    Button,
     {
       intent: "success",
       icon: "globe",
@@ -344,10 +336,6 @@ function clickHandler(action: () => Promise<void>) {
       console.error("Error performing action", message);
     }
   };
-}
-
-function IconButton({ icon, onClick, color, children, ...rest }) {
-  return m(Button, { size: "small", icon, color, onClick, ...rest }, children);
 }
 
 function getBestResourceInfo(

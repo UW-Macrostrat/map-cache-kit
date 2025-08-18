@@ -1,4 +1,4 @@
-import { atom, useAtom, useAtomValue, useSetAtom } from "jotai";
+import { atom, useAtomValue, useSetAtom } from "jotai";
 import { atomWithHash } from "jotai-location";
 import { atomWithRefresh } from "jotai/utils";
 import type { Feature, Polygon } from "geojson";
@@ -15,12 +15,11 @@ import {
   type MapCacheListing,
   MapCachePriority,
 } from "./cache-list/types.ts";
-import { getNamedLocation } from "./utils.ts";
+import { getRegionName } from "./utils.ts";
 import { geologyStyleFragment } from "./cache-list/map-style";
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 import { useReconnectableWebSocket } from "./cache-list/web-socket.ts";
 import { getDefaultStore } from "jotai";
-import { createAppToaster } from "@macrostrat/ui-components";
 
 const jotaiStore = getDefaultStore();
 
@@ -179,16 +178,41 @@ export const cacheLayersAtom = atom<CacheLayers>({
   satellite: false,
 });
 
+const userProvidedRegionNameAtom = atom<string>();
+
+export function setRegionName(name: string | null) {
+  // Action to set the user-provided region name
+  jotaiStore.set(userProvidedRegionNameAtom, name);
+}
+
+type RegionNameInfo = {
+  name: string;
+  isUserProvided: boolean;
+};
+
 // Lazy atom for name API call
-export const locationNameAtom = atom<Promise<string>>(async (get, set) => {
+const regionNameAtom = atom<Promise<RegionNameInfo>>(async (get) => {
+  const regionName = get(userProvidedRegionNameAtom);
+  if (regionName != null && regionName.trim() !== "") {
+    return {
+      name: regionName.trim(),
+      isUserProvided: true,
+    };
+  }
+
+  /** Otherwise, get the name from the map position */
+
   const location = get(mapPositionAtom);
   if (location == null) {
-    return "Unknown location";
+    return "Unknown region";
   }
 
   const { zoom, ...center } = location.target;
 
-  return await getNamedLocation(center as LngLat, zoom, mapboxAccessToken);
+  return {
+    name: await getRegionName(center as LngLat, zoom, mapboxAccessToken),
+    isUserProvided: false,
+  };
 });
 
 export const newCacheErrorAtom = atom<string | null>(null);
@@ -201,11 +225,11 @@ export const newCacheDataAtom = atom<Promise<CacheFormData>>(async (get) => {
 
   const cacheArea = get(candidateCacheAreaAtom);
   const layerInfo = get(cacheLayersAtom);
-  const name = await get(locationNameAtom);
+  const regionName = await get(regionNameAtom);
   const styles = await get(cacheStyleJSONAtom);
 
   return {
-    name,
+    name: regionName.name,
     area: cacheArea,
     layers: createLayerList(layerInfo),
     styles,
