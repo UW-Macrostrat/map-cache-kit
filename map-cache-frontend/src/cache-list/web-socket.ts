@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import useWebSocket, { ReadyState } from "react-use-websocket";
 
 export function useReconnectableWebSocket(baseURL: string, options = {}) {

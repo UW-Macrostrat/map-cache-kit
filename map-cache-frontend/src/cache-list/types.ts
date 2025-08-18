@@ -67,6 +67,8 @@ export interface MapCacheListing {
   description: RockdCacheMetadata;
   definition: {
     geometry: GeoJSON.Geometry;
+    min_zoom: number;
+    max_zoom: number;
   };
   assets?: ResourceInfo;
   status?: CacheRegionProgress;

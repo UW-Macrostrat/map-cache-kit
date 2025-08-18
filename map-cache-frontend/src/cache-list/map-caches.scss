@@ -101,4 +101,18 @@
     }
   }
 
+  .cache-layers {
+    list-style-type: none;
+    padding-left: 0;
+    li {
+      display: inline;
+      padding-right: 0em;
+      &:after {
+        content: ", ";
+      }
+      &:last-child:after {
+        content: none;
+      }
+    }
+  }
 }

@@ -29,6 +29,7 @@ struct CacheRegionsController: RouteCollection {
       await connectionManager.add(ws)
     }
     
+    regions.delete(use: self.deleteAllCacheRegions)
     regions.post(":id", "download", use: self.downloadAssets)
     regions.post(":id", "cancel", use: self.cancelRegionDownload)
     regions.delete(":id", use: self.deleteCacheRegion)
@@ -207,6 +208,24 @@ struct CacheRegionsController: RouteCollection {
     return .noContent
   }
   
+  func deleteAllCacheRegions(req: Request) async throws -> HTTPStatus {
+    // This route would delete all cache regions and their associated resources
+    guard let db = req.db as? any SQLDatabase else {
+      throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
+    }
+    
+    for key in req.application.taskStore.keys {
+      req.application.cancelDownloadTask(id: key)
+    }
+
+    try await db.raw("DELETE FROM region_resources").run()
+    try await db.raw("DELETE FROM region_tiles").run()
+    try await db.raw("DELETE FROM regions").run()
+    
+    try await deleteUnreferencedAssets(db: db, log: req.logger)
+    
+    return .noContent
+  }
 }
 
 func createRegion(_ db: any SQLDatabase, region: MBXCacheRegion) async throws -> MBXCacheRegion {

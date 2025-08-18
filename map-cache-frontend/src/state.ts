@@ -1,10 +1,4 @@
-import {
-  atom,
-  type PrimitiveAtom,
-  useAtom,
-  useAtomValue,
-  useSetAtom,
-} from "jotai";
+import { atom, useAtom, useAtomValue, useSetAtom } from "jotai";
 import { atomWithHash } from "jotai-location";
 import { atomWithRefresh } from "jotai/utils";
 import type { Feature, Polygon } from "geojson";
@@ -25,7 +19,13 @@ import { getNamedLocation } from "./utils.ts";
 import { geologyStyleFragment } from "./cache-list/map-style";
 import { useCallback, useEffect } from "react";
 import { useReconnectableWebSocket } from "./cache-list/web-socket.ts";
-import { atomWithCache } from "jotai-cache";
+import { getDefaultStore } from "jotai";
+import { createAppToaster } from "@macrostrat/ui-components";
+
+const jotaiStore = getDefaultStore();
+
+export const cacheAPIBaseURL = import.meta.env.VITE_CACHE_URL;
+const mapboxAccessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
 export const cacheModeAtom = atomWithHash<MapCachePriority>(
   "map-cache-mode",
@@ -56,9 +56,6 @@ export const basemapAtom = atomWithHash<MapCacheLayer>(
     },
   },
 );
-
-export const cacheAPIBaseURL = import.meta.env.VITE_CACHE_URL;
-const mapboxAccessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
 export const cacheDataAtom = atomWithRefresh(async (get) => {
   const res = await fetch(cacheAPIBaseURL + "/regions");
@@ -149,7 +146,7 @@ export const candidateCacheAreaAtom = atom<CacheArea | null>((get) => {
   // Need this to ensure that the map position updates
   const mapPosition = get(mapPositionAtom);
   const minZoom = Math.min(17, Math.floor(mapPosition.target.zoom));
-  const maxZoom = Math.min(20, minZoom + 3);
+  const maxZoom = Math.min(20, minZoom + 5);
 
   const bounds = map.getBounds();
 
@@ -278,30 +275,38 @@ export function useCacheWebSocket() {
 
 const cacheStyleJSONAtom = atom<Promise<StyleSpecification[]>>(async (get) => {
   /** A list of style JSON files that can be used to define the cache */
-  const geology = geologyStyleFragment as StyleSpecification;
-
   const layers = get(cacheLayersAtom);
+  return await getStylesForLayers(layers);
+});
+
+const allLayers: CacheLayers = {
+  basemap: true,
+  satellite: true,
+  bedrock: true,
+};
+
+async function getStylesForLayers(layers: CacheLayers) {
   const styles: StyleSpecification[] = [];
   if (layers.basemap) {
-    const basic = await get(basicStyleAtom);
+    const basic = await jotaiStore.get(basicStyleAtom);
     styles.push(basic);
   }
   if (layers.satellite) {
-    const satellite = await get(satelliteStyleAtom);
+    const satellite = await jotaiStore.get(satelliteStyleAtom);
     styles.push(satellite);
   }
   if (layers.bedrock) {
-    styles.push(geology);
+    styles.push(geologyStyleFragment as StyleSpecification);
   }
   return styles;
-});
+}
 
 const satelliteStyle = "mapbox://styles/jczaplewski/cl51esfdm000e14mq51erype3";
 const basicStyle = "mapbox://styles/jczaplewski/cl3w3bdai001f14ob27ckmpxz";
 
 function mapboxStyleAtom(style: string) {
   // Atom to get a Mapbox style by its URL
-  return atomWithCache<Promise<StyleSpecification>>(
+  return atom<Promise<StyleSpecification>>(
     async (get): Promise<StyleSpecification> => {
       return (await getMapboxStyle(style, {
         access_token: mapboxAccessToken,
@@ -313,7 +318,7 @@ function mapboxStyleAtom(style: string) {
 const satelliteStyleAtom = mapboxStyleAtom(satelliteStyle);
 const basicStyleAtom = mapboxStyleAtom(basicStyle);
 
-export const mapStyleAtom = atomWithCache(async (get) => {
+export const mapStyleAtom = atom(async (get) => {
   const basemap = get(basemapAtom);
   if (basemap === "satellite") {
     return await get(satelliteStyleAtom);
@@ -347,24 +352,33 @@ const cacheCreateDataAtom = atom(async (get) => {
   };
 });
 
-export function useCacheCreateCallback() {
-  const cache = useAtomValue(cacheCreateDataAtom);
-  const refreshCaches = useSetAtom(cacheDataAtom);
-  const setFormOpen = useSetAtom(showCacheFormAtom);
-  const setCacheError = useSetAtom(newCacheErrorAtom);
-  return useCallback(() => {
-    if (cache == null) {
-      return;
-    }
-    createCache(cache).then(() => {
-      refreshCaches();
-      setFormOpen(false);
-      setCacheError(null);
-    });
-  }, [cache]);
+const resetCachesAtom = atom(null, (get, set) => {
+  set(newCacheDataAtom, null);
+  set(cacheDataAtom);
+  set(showCacheFormAtom, false);
+});
+
+/** Actions */
+
+export async function deleteAllCaches() {
+  // Utility function to delete all caches (for testing)
+  const response = await fetch(cacheAPIBaseURL + "/regions", {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to delete all cache regions: ${response.statusText}`,
+    );
+  }
+  jotaiStore.set(resetCachesAtom);
 }
 
-export async function createCache(data: CacheCreationInfo) {
+export async function createCache() {
+  const data = await jotaiStore.get(cacheCreateDataAtom);
+  return await createCacheInternal(data);
+}
+
+async function createCacheInternal(data: CacheCreationInfo) {
   // Post to the cache API to create a new cache
   const response = await fetch(cacheAPIBaseURL + "/regions", {
     method: "POST",
@@ -377,16 +391,32 @@ export async function createCache(data: CacheCreationInfo) {
   if (error != null) {
     throw error;
   }
+  jotaiStore.set(resetCachesAtom);
 }
 
-export const useCacheDeleteCallback = (id: number) => {
-  const refreshCaches = useSetAtom(cacheDataAtom);
-  return useCallback(() => {
-    deleteCache(id)
-      .then(() => refreshCaches())
-      .catch(console.error);
-  }, [id]);
-};
+export async function createGlobalCache() {
+  const data = {
+    geometry: {
+      type: "Polygon",
+      coordinates: [
+        [
+          [-180, -90],
+          [180, -90],
+          [180, 90],
+          [-180, 90],
+          [-180, -90],
+        ],
+      ],
+    } as Polygon,
+    min_zoom: 0,
+    max_zoom: 5,
+    pixel_ratio: 2,
+    styles: await getStylesForLayers(allLayers),
+    name: "Global",
+    layers: createLayerList(allLayers),
+  };
+  return await createCacheInternal(data);
+}
 
 export async function deleteCache(id: number) {
   const response = await fetch(`${cacheAPIBaseURL}/regions/${id}`, {
@@ -395,7 +425,10 @@ export async function deleteCache(id: number) {
   if (!response.ok) {
     throw new Error(`Failed to delete cache region: ${response.statusText}`);
   }
+  jotaiStore.set(resetCachesAtom);
 }
+
+/** Helpers */
 
 function createLayerList(info: CacheLayers): string[] {
   const layers: string[] = [];

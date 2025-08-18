@@ -6,7 +6,7 @@ import type {
 } from "./types";
 import { MapCachePriority } from "./types";
 import { CacheMap } from "./cache-map";
-import { useState, memo } from "react";
+import { memo } from "react";
 import { findGlobalCache, isGlobalCache, isStyleCache } from "./utils";
 import {
   Button,
@@ -26,41 +26,48 @@ import {
   showCacheFormAtom,
   newCacheDataAtom,
   cacheLayersAtom,
-  useCacheCreateCallback,
-  useCacheDeleteCallback,
   useDownloadProgress,
+  createGlobalCache,
+  deleteCache,
+  deleteAllCaches,
+  createCache,
 } from "../state.ts";
 import { useAtom } from "jotai";
 import { bbox } from "@turf/bbox";
 import type { LngLatBoundsLike } from "mapbox-gl";
+import { OverlayToaster } from "@blueprintjs/core";
+import { createRoot } from "react-dom/client";
 
-export function CachePanelView({ dispatch }) {
+const Toaster = await OverlayToaster.createAsync(
+  {},
+  {
+    domRenderer: (toaster, containerElement) =>
+      createRoot(containerElement).render(toaster),
+  },
+);
+
+export function CachePanelView() {
   const [data] = useAtom(cacheDataAtom);
   if (data == null) {
     return m("div.cache-list-panel", m(Spinner));
   }
 
   const caches = data.regions ?? [];
+  let _caches = caches.filter((c) => !isStyleCache(c));
+  _caches.reverse();
   const totalSize = data.assets.tile_size + data.assets.resource_size;
-  const hasGlobalCache = findGlobalCache(caches ?? []) != null;
+  const hasGlobalCache = findGlobalCache(_caches) != null;
 
   return m("div.cache-list-panel", [
-    m.if(!hasGlobalCache)(AddGlobalCacheButton, { dispatch }),
+    m.if(!hasGlobalCache)(AddGlobalCacheButton),
     m(NewCacheForm),
-    m(CacheList, { caches, dispatch }),
-    m(CacheSystemControls, { dispatch, totalSize }),
+    m(CacheList, { caches: _caches }),
+    m(CacheSystemControls, { totalSize }),
   ]);
 }
 
 function CacheList({ caches }: { caches: MapCacheListing[] }) {
-  if (caches == null) {
-    return m("div.cache-list-empty", m(Spinner));
-  }
-
-  let _caches = caches.filter((c) => !isStyleCache(c));
-  _caches.reverse();
-
-  if (_caches.length == 0) {
+  if (caches.length == 0) {
     return m("div.cache-list-empty", m("div.ion-label", "No caches"));
   }
 
@@ -68,7 +75,7 @@ function CacheList({ caches }: { caches: MapCacheListing[] }) {
     m(
       "div.ion-list",
       null,
-      _caches.map((cache) => {
+      caches.map((cache) => {
         return m(CacheItem, {
           key: cache.id,
           cache,
@@ -83,7 +90,6 @@ function NewCacheForm() {
   const [showForm, setShowForm] = useAtom(showCacheFormAtom);
   const [cacheData] = useAtom(newCacheDataAtom);
   const [cacheLayers, setCacheLayers] = useAtom(cacheLayersAtom);
-  const onClick = useCacheCreateCallback();
 
   if (!showForm) {
     return m(
@@ -107,9 +113,11 @@ function NewCacheForm() {
             label: capitalize(layer),
             checked: cacheLayers[layer],
             onChange: (e) => {
-              setCacheLayers({
-                ...cacheLayers,
-                [layer]: e.target.checked,
+              setCacheLayers((val) => {
+                return {
+                  ...val,
+                  [layer]: e.target.checked,
+                };
               });
             },
           }),
@@ -121,7 +129,7 @@ function NewCacheForm() {
       {
         icon: "check",
         intent: "primary",
-        onClick,
+        onClick: clickHandler(createCache),
       },
       "Create cache",
     ),
@@ -170,6 +178,7 @@ function CacheItem({ cache }: { cache: MapCacheListing }) {
         ]),
         m("div.ion-card-content", [
           m(CacheLayers, { layers: cache.description?.layers }),
+          m(CacheZoomLevels, { cache }),
           m("div.cache-status", [
             m.if(isDownloading)(ProgressBar, {
               value: progress,
@@ -200,6 +209,18 @@ function CacheItem({ cache }: { cache: MapCacheListing }) {
   ]);
 }
 
+function CacheZoomLevels({ cache }: { cache: MapCacheListing }) {
+  const minZoom = cache.definition.min_zoom;
+  const maxZoom = cache.definition.max_zoom;
+
+  return m("div.cache-zoom-levels", [
+    m("strong", "Zoom levels: "),
+    minZoom,
+    " - ",
+    maxZoom,
+  ]);
+}
+
 function LabeledControl({ label, children, inline = true }) {
   return m(FormGroup, { label, inline }, children);
 }
@@ -208,10 +229,8 @@ type CacheUIState = "deleting" | "refreshing" | null;
 
 function CacheSystemControls({
   totalSize,
-  dispatch,
 }: {
   totalSize: number;
-  dispatch(action: CacheManagementAction): void;
   uiState?: CacheUIState;
 }) {
   return m("div.ion-card", [
@@ -225,8 +244,8 @@ function CacheSystemControls({
           IconButton,
           {
             icon: "trash",
-            color: "danger",
-            onClick: () => dispatch({ type: "delete-all" }),
+            intent: "danger",
+            onClick: clickHandler(deleteAllCaches),
           },
           "Delete all",
         ),
@@ -236,9 +255,9 @@ function CacheSystemControls({
   ]);
 }
 
-function CacheModeControl() {
+export function CacheModeControl({ inline = false }) {
   const [cacheMode, setCacheMode] = useAtom(cacheModeAtom);
-  return m(LabeledControl, { label: "Cache mode", inline: true }, [
+  return m(LabeledControl, { label: "Cache mode", inline }, [
     m(SegmentedControl, {
       size: "small",
       options: [
@@ -259,10 +278,8 @@ function CacheModeControl() {
 
 function CacheLayers({ layers }) {
   if (layers == null) return null;
-  return m("div.cache-layers", [
-    layers.map((layer) =>
-      m("div.ion-chip", { key: layer }, [capitalize(layer), " "]),
-    ),
+  return m("ul.cache-layers", [
+    layers.map((layer) => m("li", { key: layer }, capitalize(layer))),
   ]);
 }
 
@@ -283,44 +300,50 @@ function CacheDateBlock({ cache }) {
 }
 
 function CacheControlActionButtons({ cacheId }) {
-  const onClick = useCacheDeleteCallback(cacheId);
-
   return m("div.ion-row", { class: "ion-padding-start" }, [
     m(
       IconButton,
       {
         icon: "trash",
-        color: "danger",
-        onClick,
+        intent: "danger",
+        onClick: clickHandler(() => deleteCache(cacheId)),
       },
       "Delete",
     ),
   ]);
 }
 
-function NewCacheButton({ dispatch, action = "create", ...rest }) {
-  return m(IconButton, {
-    icon: "add",
-    color: "success",
-    expand: "block",
-    size: "large",
-    class: "ion-margin",
-    onClick: () => dispatch({ type: action }),
-    ...rest,
-  });
-}
-
-function AddGlobalCacheButton({ dispatch }) {
+function AddGlobalCacheButton() {
   return m(
-    NewCacheButton,
+    IconButton,
     {
-      action: "create-global",
-      color: "secondary",
-      icon: "earth",
-      dispatch,
+      intent: "success",
+      icon: "globe",
+      onClick: clickHandler(createGlobalCache),
     },
     "Create global cache",
   );
+}
+
+function clickHandler(action: () => Promise<void>) {
+  return async () => {
+    try {
+      await action();
+    } catch (e) {
+      let message = "An error occurred while performing the action.";
+      if (e instanceof Error) {
+        message = e.message;
+      } else if (typeof e === "string") {
+        message = e;
+      }
+
+      Toaster.show({
+        message,
+        intent: Intent.DANGER,
+      });
+      console.error("Error performing action", message);
+    }
+  };
 }
 
 function IconButton({ icon, onClick, color, children, ...rest }) {
@@ -378,16 +401,4 @@ function CacheSize({ size }) {
 
 function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-export type CacheManagementAction =
-  | {
-      type: "delete" | "view" | "refresh" | "cancel-download";
-      cacheId: number;
-    }
-  | { type: "create-global" | "create" | "delete-all" | "delete-ambient" }
-  | { type: "set-cache-mode"; cacheMode: MapCachePriority };
-
-function cacheIsDownloading(cache: MapCacheListing) {
-  return cache.offlineStatus?.downloadState == "active";
 }
