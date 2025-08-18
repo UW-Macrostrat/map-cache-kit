@@ -62,6 +62,8 @@ export function CachePanelView() {
   const totalSize = data.assets.tile_size + data.assets.resource_size;
   const hasGlobalCache = findGlobalCache(_caches) != null;
 
+  const hasMaxAllowedCaches = _caches.length >= data.maxNumberOfRegions;
+
   let topElement = m(ButtonGroup, { vertical: true, large: true }, [
     m.if(!hasGlobalCache)(AddGlobalCacheButton),
     m(
@@ -70,6 +72,8 @@ export function CachePanelView() {
         icon: "add",
         onClick: () => setShowForm(true),
         className: "ion-margin",
+        intent: "primary",
+        disabled: hasMaxAllowedCaches,
       },
       "Create new cache",
     ),
@@ -81,12 +85,21 @@ export function CachePanelView() {
 
   return m("div.cache-list-panel", [
     topElement,
-    m(CacheList, { caches: _caches }),
+    m(CacheList, {
+      caches: _caches,
+      maxNumberOfRegions: data.maxNumberOfRegions,
+    }),
     m(CacheSystemControls, { totalSize }),
   ]);
 }
 
-function CacheList({ caches }: { caches: MapCacheListing[] }) {
+function CacheList({
+  caches,
+  maxNumberOfRegions = Infinity,
+}: {
+  caches: MapCacheListing[];
+  maxNumberOfRegions?: number;
+}) {
   if (caches.length == 0) {
     return m(NonIdealState, {
       icon: "layers",
@@ -94,7 +107,20 @@ function CacheList({ caches }: { caches: MapCacheListing[] }) {
     });
   }
 
+  let footer = null;
+  let cachesCount = null;
+  const nRemaining = (maxNumberOfRegions ?? Infinity) - caches.length;
+  if (nRemaining <= 0) {
+    cachesCount = "Maximum number of regions reached.";
+  } else if (nRemaining < Infinity) {
+    cachesCount = `You can cache ${nRemaining} more region${nRemaining > 1 ? "s" : ""}.`;
+  }
+  if (cachesCount != null) {
+    footer = m("p.cache-list-info", cachesCount);
+  }
+
   return m([
+    footer,
     m(
       "div.ion-list",
       null,
@@ -105,7 +131,6 @@ function CacheList({ caches }: { caches: MapCacheListing[] }) {
         });
       }),
     ),
-    m("div.cache-list-spacer"),
   ]);
 }
 
@@ -186,7 +211,7 @@ function CacheItem({ cache }: { cache: MapCacheListing }) {
     map.fitBounds(_bbox, { duration: 500 });
   };
 
-  return m("div.ion-card.cache-card", [
+  return m(CacheCard, { className: "cache-item" }, [
     m("div.flex-row", [
       m("div.main-column", [
         m("div.ion-card-header", [
@@ -251,25 +276,29 @@ function CacheSystemControls({
   totalSize: number;
   uiState?: CacheUIState;
 }) {
-  return m("div.ion-card", [
-    m("div.ion-card-content", [
-      m("div.flex-row", [
-        m(FormGroup, { label: "Total size", inline: true }, [
-          m(CacheSize, { size: totalSize }),
-        ]),
-        m("div.spacer"),
-        m(
-          Button,
-          {
-            icon: "trash",
-            intent: "danger",
-            size: "large",
-            onClick: clickHandler(deleteAllCaches),
-          },
-          "Delete all",
-        ),
+  return m(CacheCard, [
+    m("div.flex-row", [
+      m(FormGroup, { label: "Total size", inline: true }, [
+        m(CacheSize, { size: totalSize }),
       ]),
+      m("div.spacer"),
+      m(
+        Button,
+        {
+          icon: "trash",
+          intent: "danger",
+          size: "large",
+          onClick: clickHandler(deleteAllCaches),
+        },
+        "Delete all",
+      ),
     ]),
+  ]);
+}
+
+function CacheCard({ children, className }) {
+  return m("div.bp5-card.minimal-card", { className }, [
+    m("div.ion-card-content", children),
   ]);
 }
 

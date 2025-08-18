@@ -1,10 +1,13 @@
-import h from "@macrostrat/hyper";
+import hyper from "@macrostrat/hyper";
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { Map, type StyleSpecification } from "mapbox-gl";
 import { baseMapStyles } from "./map-style";
 import { mergeStyles } from "@macrostrat/mapbox-utils";
 import { boundsForPolygon } from "./utils";
 import { useElementSize } from "@macrostrat/ui-components";
+import styles from "./map-caches.module.sass";
+
+const h = hyper.styled(styles);
 
 const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
@@ -76,7 +79,7 @@ function setupMap(
         },
       },
     ],
-  }) as StyleSpecification
+  }) as StyleSpecification;
 
   const map = new Map({
     accessToken: mapboxToken,

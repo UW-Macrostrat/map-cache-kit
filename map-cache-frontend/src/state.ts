@@ -22,7 +22,6 @@ import { useReconnectableWebSocket } from "./cache-list/web-socket.ts";
 import { getDefaultStore } from "jotai";
 
 const jotaiStore = getDefaultStore();
-console.log("Using Jotai store:", jotaiStore);
 
 export const cacheAPIBaseURL = import.meta.env.VITE_CACHE_URL;
 const mapboxAccessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
@@ -146,7 +145,7 @@ export const candidateCacheAreaAtom = atom<CacheArea | null>((get) => {
   // Need this to ensure that the map position updates
   const mapPosition = get(mapPositionAtom);
   const minZoom = Math.min(17, Math.floor(mapPosition.target.zoom));
-  const maxZoom = Math.min(20, minZoom + 5);
+  const maxZoom = Math.min(20, minZoom + 4);
 
   const bounds = map.getBounds();
 
@@ -434,7 +433,7 @@ export async function createGlobalCache() {
       ],
     } as Polygon,
     min_zoom: 0,
-    max_zoom: 5,
+    max_zoom: 4,
     pixel_ratio: 2,
     styles: await getStylesForLayers(allLayers),
     name: "Global",

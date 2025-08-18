@@ -77,6 +77,7 @@ export interface MapCacheListing {
 export interface CacheData {
   regions: MapCacheListing[];
   assets: ResourceInfo;
+  maxNumberOfRegions: number;
 }
 
 export interface CacheRegionProgress {

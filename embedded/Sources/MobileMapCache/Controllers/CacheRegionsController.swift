@@ -83,7 +83,11 @@ struct CacheRegionsController: RouteCollection {
     
     let total = try await getTotalSize(db: db)
 
-    return CacheRegionsInfo(regions: regions, assets: total)
+    return CacheRegionsInfo(
+      regions: regions,
+      assets: total,
+      maxNumberOfRegions: (try? req.application.config.maxNumberOfRegions) ?? 10
+    )
   }
   
   // Route to create a cache region
@@ -512,4 +516,5 @@ struct MBXCacheRegion: Content {
 struct CacheRegionsInfo: Content {
   let regions: [MBXCacheRegion]
   let assets: CachedAssetsInfo
+  let maxNumberOfRegions: Int
 }

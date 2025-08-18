@@ -5,7 +5,33 @@
 //  Created by Daven Quinn on 8/17/25.
 //
 // https://losingfight.com/blog/2024/04/14/swift-asyncawait-do-you-even-need-a-queue/
+import Vapor
 
+func downloadFile(with app: Application, url: URI) async throws -> ClientResponse {
+  return try await app.downloadManger.run {
+    // wait for a randomized timeout
+    let timeout = try app.config.httpRequestTimeout
+    // scale timeout by a random amount
+    //timeout *= Double.random(in: 0.5...1.5)
+    var t1 = Double(timeout.nanoseconds) / 1_000_000_000.0
+    t1 *= Double.random(in: 0.5...1.5)
+    
+    try await Task.sleep(nanoseconds: UInt64(t1 * 1_000_000_000.0))
+  
+    let client = app.client
+    app.logger.debug("Downloading \(url)")
+    // sleep for the timeout
+    try Task.checkCancellation()
+    
+    do {
+      let res = try await client.get(url)
+      return res
+    } catch let error {
+      app.logger.error("Failed to download \(url): \(error)")
+      throw error
+    }
+  }
+}
 
 final class ConcurrentDownloadManager: Sendable {
   private let counter: Counter

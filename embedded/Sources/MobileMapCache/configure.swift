@@ -2,9 +2,14 @@ import Fluent
 import FluentSQLiteDriver
 import NIOSSL
 import Vapor
+import NIOCore
 
 struct AppConfig {
-  var mapboxAPIToken: String?
+  let mapboxAPIToken: String?
+  let maxConcurrentHTTPConnections: Int = 4
+  // Time between http requests during cache downloading
+  let httpRequestTimeout: TimeAmount = .milliseconds(200)
+  let maxNumberOfRegions: Int = 5
 }
 
 
@@ -32,11 +37,14 @@ extension Application {
   }
   
   var downloadManger: ConcurrentDownloadManager {
-    get {
+    get throws {
+      let cfg = try self.config
       if let manager = self.storage.get(ConcurrentDownloadManagerKey.self) {
         return manager
       } else {
-        let manager = ConcurrentDownloadManager(maxConcurrentDownloads: 8)
+        let manager = ConcurrentDownloadManager(
+          maxConcurrentDownloads: cfg.maxConcurrentHTTPConnections
+        )
         self.storage.set(ConcurrentDownloadManagerKey.self, to: manager)
         return manager
       }

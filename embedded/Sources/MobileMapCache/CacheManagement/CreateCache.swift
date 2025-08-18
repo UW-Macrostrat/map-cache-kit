@@ -370,21 +370,6 @@ func compressionAlgorithm(for data: Data?) -> String? {
   return nil
 }
 
-func downloadFile(with app: Application, url: URI) async throws -> ClientResponse {
-  return try await app.downloadManger.run {
-    try Task.checkCancellation()
-    let client = app.client
-    app.logger.debug("Downloading \(url)")
-    do {
-      let res = try await client.get(url)
-      return res
-    } catch let error {
-      app.logger.error("Failed to download \(url): \(error)")
-      throw error
-    }
-  }
-}
-
 func getRegionAssets(
   with app: Application, using definition: CacheRegionDefinition, options: ResourceFindOptions
 ) async throws -> RegionAssetsPrepareStatus {
