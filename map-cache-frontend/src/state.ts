@@ -22,6 +22,7 @@ import { useReconnectableWebSocket } from "./cache-list/web-socket.ts";
 import { getDefaultStore } from "jotai";
 
 const jotaiStore = getDefaultStore();
+console.log("Using Jotai store:", jotaiStore);
 
 export const cacheAPIBaseURL = import.meta.env.VITE_CACHE_URL;
 const mapboxAccessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
@@ -377,9 +378,9 @@ const cacheCreateDataAtom = atom(async (get) => {
 });
 
 const resetCachesAtom = atom(null, (get, set) => {
-  set(newCacheDataAtom, null);
   set(cacheDataAtom);
   set(showCacheFormAtom, false);
+  set(userProvidedRegionNameAtom, null);
 });
 
 /** Actions */
