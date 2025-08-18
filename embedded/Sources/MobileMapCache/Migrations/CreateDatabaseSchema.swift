@@ -3,20 +3,8 @@ import FluentSQL
 import FluentSQLiteDriver
 import Foundation
 
-struct CreateTodo: AsyncMigration {
-  func prepare(on database: any Database) async throws {
-    try await database.schema("todos")
-      .id()
-      .field("title", .string, .required)
-      .create()
-  }
-
-  func revert(on database: any Database) async throws {
-    try await database.schema("todos").delete()
-  }
-}
-
 struct CreateDatabaseSchema: AsyncMigration {
+  /** Create the basic database schema conforming to the original cache system. */
   func prepare(on database: any Database) async throws {
     guard let sqlDatabase = database as? any SQLDatabase else {
       throw RuntimeError.databaseError("Database is not an SQL database")

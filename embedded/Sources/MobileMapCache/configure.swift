@@ -82,7 +82,7 @@ public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration) as
   let cfg = AppConfig(mapboxAPIToken: apiToken)
   await app.storage.setWithAsyncShutdown(ConfigurationKey.self, to: cfg)
   
-  print("Configuring MobileMapCache with database: \(cacheDatabase.storage)")
+  app.logger.info("Configuring MobileMapCache with database: \(cacheDatabase.storage)")
 
   app.databases.use(DatabaseConfigurationFactory.sqlite(cacheDatabase), as: .sqlite)
   
