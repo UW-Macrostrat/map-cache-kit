@@ -26,3 +26,5 @@ dist-ssr
 .yarn/install-state.gz
 .yarn/cache
 .pnp.*
+
+.vite
