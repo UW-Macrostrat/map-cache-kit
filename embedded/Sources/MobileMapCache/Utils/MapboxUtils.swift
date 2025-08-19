@@ -345,7 +345,11 @@ func findSourcesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedR
   return sourceData
 }
 
-func buildCacheRegionThumbnailURL(app: Application, region: MBXCacheRegion) throws -> String {
+func buildCacheRegionThumbnailURL(app: Application, region: MBXCacheRegion) throws -> String? {
+  if region.isGlobal {
+    return nil // No thumbnail for global regions
+  }
+  
   let staticMapStyle = try app.config.staticMapStyle
   let baseURLTemplate = "\(staticMapStyle)/static/"
   
@@ -368,7 +372,7 @@ func buildCacheRegionThumbnailURL(app: Application, region: MBXCacheRegion) thro
   let position = "geojson(\(overlay2))/auto"
   // convert geometry to geojson
   
-  let baseURL = baseURLTemplate.replacingOccurrences(of: "mapbox//styles", with: "https://api.mapbox.com/styles/v1")
+  let baseURL = baseURLTemplate.replacingOccurrences(of: "mapbox://styles", with: "https://api.mapbox.com/styles/v1")
 
   return baseURL + position + "/130x130@2x"
 }

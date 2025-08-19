@@ -33,6 +33,7 @@ struct CacheRegionsController: RouteCollection {
     regions.post(":id", "download", use: self.downloadAssets)
     regions.post(":id", "cancel", use: self.cancelRegionDownload)
     regions.delete(":id", use: self.deleteCacheRegion)
+    regions.get(":id", "thumbnail", use: self.getCacheRegionImage)
   }
   
   @Sendable
@@ -94,12 +95,46 @@ struct CacheRegionsController: RouteCollection {
     )
   }
   
+  @Sendable
+  func getCacheRegionImage(req: Request) async throws -> Response {
+    guard let id = req.parameters.get("id", as: Int.self) else {
+      throw Abort(.badRequest, reason: "Missing region ID")
+    }
+    
+    // Fetch the region from the database
+    guard let db = req.db as? any SQLDatabase else {
+      throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
+    }
+    
+    guard let token = try req.application.config.mapboxAPIToken else {
+      throw Abort(.internalServerError, reason: "Mapbox API token not configured")
+    }
+    
+    guard let region = try await db.raw(
+      "SELECT * FROM regions WHERE id = \(bind: id)"
+    ).first(decoding: MBXCacheRegion.self) else {
+      throw Abort(.notFound, reason: "Region not found")
+    }
+    
+    // Generate the static map URL
+    guard let baseURL = try buildCacheRegionThumbnailURL(app: req.application, region: region) else {
+      return Response(status: .notFound, body: "No thumbnails available for global regions")
+    }
+    
+    let url = baseURL+"?access_token="+token
+   
+    req.logger.info("Redirecting to static map URL: \(url)")
+    // Temporary redirect
+    // This is a tem
+    return req.redirect(to: url, redirectType: .temporary)
+  }
+  
   // Route to create a cache region
   @Sendable
   func create(req: Request) async throws -> MBXCacheRegion {
     let cacheInfo = try req.content.decode(CacheCreationInfo.self)
     let regionCandidate = cacheInfo.synthesizeLegacyDefinition()
-
+    
     // Save the region to the database
     guard let db = req.db as? any SQLDatabase else {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
@@ -107,7 +142,7 @@ struct CacheRegionsController: RouteCollection {
     
     let region = try await createRegion(db, region: regionCandidate)
     self.startRegionDownload(req.application, region: region, styles: cacheInfo.styles)
-
+    
     return region
   }
   
