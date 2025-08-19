@@ -34,6 +34,7 @@ struct CacheRegionsController: RouteCollection {
     regions.post(":id", "cancel", use: self.cancelRegionDownload)
     regions.delete(":id", use: self.deleteCacheRegion)
     regions.get(":id", "thumbnail", use: self.getCacheRegionImage)
+    regions.post("refresh", use: self.refreshAll)
   }
   
   @Sendable
@@ -145,6 +146,29 @@ struct CacheRegionsController: RouteCollection {
     self.startRegionDownload(req.application, region: region, styles: cacheInfo.styles)
     
     return region
+  }
+  
+  @Sendable
+  func refreshAll(req: Request) async throws -> HTTPStatus {
+    /** Refresh the definitions for all cache regions from the network. Right now, this just refreshes
+     stored cache regions but eventually we'll download styles and other assets */
+    guard let db = req.db as? any SQLDatabase else {
+      throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
+    }
+    
+    try await db.withSession { session in
+      let resourceIDs = try await session.raw(
+        "SELECT id FROM resources WHERE kind = \(bind: ResourceKind.thumbnail.rawValue)"
+      ).all(decodingColumn: "id", as: Int.self)
+      
+      try await session.raw(
+        "DELETE FROM region_resources WHERE resource_id IN (\(bind: resourceIDs))"
+      ).run()
+      try await session.raw(
+        "DELETE FROM resources WHERE id IN (\(bind: resourceIDs))"
+      ).run()
+    }
+    return .ok
   }
   
   func downloadAssets(req: Request) async throws -> HTTPStatus {

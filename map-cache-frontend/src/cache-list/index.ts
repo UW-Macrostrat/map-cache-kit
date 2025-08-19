@@ -32,6 +32,7 @@ import {
   deleteAllCaches,
   createCache,
   setRegionName,
+  refreshDefinitions,
 } from "../state.ts";
 import { useAtom, useSetAtom } from "jotai";
 import { bbox } from "@turf/bbox";
@@ -282,16 +283,26 @@ function CacheSystemControls({
         m(CacheSize, { size: totalSize }),
       ]),
       m("div.spacer"),
-      m(
-        Button,
-        {
-          icon: "trash",
-          intent: "danger",
-          size: "large",
-          onClick: clickHandler(deleteAllCaches),
-        },
-        "Delete all",
-      ),
+      m(ButtonGroup, { size: "small", minimal: true }, [
+        m(
+          Button,
+          {
+            icon: "refresh",
+            intent: "warning",
+            onClick: clickHandler(refreshDefinitions),
+          },
+          "Refresh",
+        ),
+        m(
+          Button,
+          {
+            icon: "trash",
+            intent: "danger",
+            onClick: clickHandler(deleteAllCaches),
+          },
+          "Delete all",
+        ),
+      ]),
     ]),
   ]);
 }

@@ -288,7 +288,6 @@ export function useCacheWebSocket() {
     if (msg == null) {
       return;
     }
-    console.log("WebSocket message received:", msg);
     setDownloadProgress(msg);
   }, [webSocket.lastJsonMessage]);
 
@@ -392,6 +391,19 @@ export async function deleteAllCaches() {
   if (!response.ok) {
     throw new Error(
       `Failed to delete all cache regions: ${response.statusText}`,
+    );
+  }
+  jotaiStore.set(resetCachesAtom);
+}
+
+export async function refreshDefinitions() {
+  // Refresh the cache definitions from the API
+  const response = await fetch(cacheAPIBaseURL + "/regions/refresh", {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to refresh cache definitions: ${response.statusText}`,
     );
   }
   jotaiStore.set(resetCachesAtom);

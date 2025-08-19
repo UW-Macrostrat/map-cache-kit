@@ -150,7 +150,10 @@ export function StaticCacheMap(props: {
   const width = size;
   const height = size;
 
-  const src = cacheAPIBaseURL + `/regions/${cache.id}/thumbnail`;
+  let src = null;
+  if (!isGlobalCache(cache)) {
+    src = cacheAPIBaseURL + `/regions/${cache.id}/thumbnail`;
+  }
 
   let inner = null;
   if (src == null) {
