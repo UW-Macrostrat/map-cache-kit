@@ -501,3 +501,37 @@ func downloadNoDataTile() async throws {
     #expect(res.status == .notFound, "The tile should not be found")
   }
 }
+
+@Test("Download a basic cache area thumbnail")
+func downloadBasicCacheAreaThumbnail() async throws {
+  try await withApp { app in
+    guard let accessToken = try app.config.mapboxAPIToken else {
+      throw RuntimeError.invalidArgument("Mapbox API token not set in config")
+    }
+    let thumbnailURL = "https://api.mapbox.com/styles/v1/mapbox/streets-v11/static/-122.447303,37.753574,12.00,0,0/600x300?access_token=\(accessToken)"
+    let res = try await downloadFile(with: app, url: URI(string: thumbnailURL))
+    #expect(res.status == .ok)
+    #expect(res.headers.contentType == .png, "The thumbnail should be a PNG image")
+    
+    guard let nBytes = res.body?.readableBytes else {
+      throw RuntimeError.invalidArgument("Response body is empty")
+    }
+    #expect(nBytes > 0, "The thumbnail should not be empty")
+  }
+}
+
+@Test("Download a cache area thumbnail with a GeoJSON polygon")
+func downloadGeoJSONCacheAreaThumbnail() async throws {
+  try await withApp { app in
+    let env = Envelope(minX: -122.447303, maxX: -122.447303 + 0.1, minY: 37.753574, maxY: 37.753574 + 0.1)
+    let uri = try buildCacheRegionThumbnailURL(app: app, geometry: env.geometry)
+    let res = try await downloadFile(with: app, url: uri)
+    #expect(res.status == .ok)
+    #expect(res.headers.contentType == .png, "The thumbnail should be a PNG image")
+    
+    guard let nBytes = res.body?.readableBytes else {
+      throw RuntimeError.invalidArgument("Response body is empty")
+    }
+    #expect(nBytes > 0, "The thumbnail should not be empty")
+  }
+}

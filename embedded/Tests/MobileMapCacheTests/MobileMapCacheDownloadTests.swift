@@ -48,7 +48,6 @@ struct MobileMapCacheDownloadTests {
     }
   }
   
-  
   @Test("Ensure that no tiles need to be downloaded for existing cache definition")
   func findAllAssetsForRegion() async throws {
     try await withExistingDatabase { app in
@@ -75,8 +74,6 @@ struct MobileMapCacheDownloadTests {
       #expect(regionInfo.resources.resourcesAlreadyDownloaded.count == 13, "There should be 15 resources already downloaded for the region")
       #expect(regionInfo.resources.resourcesToDownload.isEmpty, "There should be no resources to download for the region")
       #expect(Double(regionInfo.resources.totalSizeOfResourcesDownloaded) > 4e5, "Total size of resources should be greater than 400 kb")
-      
-      
     }
   }
   

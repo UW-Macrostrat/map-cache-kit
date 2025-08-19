@@ -197,9 +197,12 @@ let ctypeIndex = [
 ]
 
 enum ResourceKind: Int {
+  // Mapbox resource types
   case style = 1
   case source = 2
   case font = 4
   case sprite = 5
   case spritejson = 6
+  // our resource types
+  case thumbnail = -100
 }

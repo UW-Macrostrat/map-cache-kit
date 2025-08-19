@@ -308,11 +308,9 @@ func findFontStacksRequestedByMapboxStyle(spec: StyleSpec, maxCodePoint: Int = 6
 
 func findSpritesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedResource> {
   var sprites = Set<RequestedResource>()
-  
   guard let sprite = spec.sprite else {
     return sprites
   }
-  
   let kinds: [ResourceKind] = [.sprite, .spritejson]
   let suffixes = ["", "@2x"]
   
@@ -324,7 +322,6 @@ func findSpritesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedR
       sprites.insert(RequestedResource(urlTemplate: urlTemplate, kind: kind))
     }
   }
-
   return sprites
 }
 
@@ -341,38 +338,36 @@ func findSourcesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedR
       break
     }
   }
-  
   return sourceData
 }
 
-func buildCacheRegionThumbnailURL(app: Application, region: MBXCacheRegion) throws -> String? {
-  if region.isGlobal {
-    return nil // No thumbnail for global regions
-  }
-  
+func buildCacheRegionThumbnailURL(app: Application, geometry: Geometry) throws -> URI {
   let staticMapStyle = try app.config.staticMapStyle
-  let baseURLTemplate = "\(staticMapStyle)/static/"
-  
-  let geom = try region.getGeometry()
-  
-  let feat = Feature(geometry: geom, properties: [
+  guard let token = try app.config.mapboxAPIToken else {
+    throw RuntimeError.configurationError("Mapbox API token is not set in the application config")
+  }
+  let baseURLTemplate = "\(staticMapStyle)/static/{position}/130x130@2x"
+  let feat = Feature(geometry: geometry, properties: [
     "fill-color": "#0080ff", // blue color fill
     "fill-opacity": 0.2,
     "stroke": "#0080ff"
   ])
   
   let encFeat = try JSONEncoder().encode(feat)
-  guard let overlay = String(data: encFeat, encoding: .utf8)?.replacingOccurrences(of: "#", with: "%23").replacingOccurrences(of: " ", with: "") else {
+  guard let overlay = String(data: encFeat, encoding: .utf8) else {
     throw RuntimeError.invalidArgument("Failed to encode position for thumbnail URL")
   }
-  
-  // truncate precision to 4 decimal places
   let overlay2 = overlay.replacingOccurrences(of: "\\.([0-9]{4})[0-9]+", with: ".$1", options: .regularExpression)
-  
   let position = "geojson(\(overlay2))/auto"
-  // convert geometry to geojson
   
-  let baseURL = baseURLTemplate.replacingOccurrences(of: "mapbox://styles", with: "https://api.mapbox.com/styles/v1")
-
-  return baseURL + position + "/130x130@2x"
+  let baseURL = baseURLTemplate
+    .replacingOccurrences(of: "{position}", with: position)
+    .replacingOccurrences(of: "mapbox://styles", with: "/styles/v1")
+  
+  return URI(
+    scheme: "https",
+    host: "api.mapbox.com",
+    path: baseURL,
+    query: buildParams(["access_token": token])
+  )
 }

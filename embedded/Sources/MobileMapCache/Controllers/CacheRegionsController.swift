@@ -100,33 +100,34 @@ struct CacheRegionsController: RouteCollection {
     guard let id = req.parameters.get("id", as: Int.self) else {
       throw Abort(.badRequest, reason: "Missing region ID")
     }
-    
     // Fetch the region from the database
     guard let db = req.db as? any SQLDatabase else {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
     }
     
-    guard let token = try req.application.config.mapboxAPIToken else {
-      throw Abort(.internalServerError, reason: "Mapbox API token not configured")
+    let region = try await getRegion(db, id: id)
+    
+    let data = try await getAndCacheThumbnail(
+      with: req.application,
+      for: region
+    )
+  
+    guard let data, !data.isEmpty else {
+      throw Abort(.notFound, reason: "No thumbnail available for region \(id)")
     }
     
-    guard let region = try await db.raw(
-      "SELECT * FROM regions WHERE id = \(bind: id)"
-    ).first(decoding: MBXCacheRegion.self) else {
-      throw Abort(.notFound, reason: "Region not found")
+    // Check image mime type
+    guard let mimeType = getImageMimeType(data) else {
+      throw Abort(.internalServerError, reason: "Could not determine image MIME type")
     }
     
-    // Generate the static map URL
-    guard let baseURL = try buildCacheRegionThumbnailURL(app: req.application, region: region) else {
-      return Response(status: .notFound, body: "No thumbnails available for global regions")
-    }
-    
-    let url = baseURL+"?access_token="+token
-   
-    req.logger.info("Redirecting to static map URL: \(url)")
-    // Temporary redirect
-    // This is a tem
-    return req.redirect(to: url, redirectType: .temporary)
+    return Response(
+      status: .ok,
+      headers: HTTPHeaders([
+        ("Content-Type", mimeType),
+      ]),
+      body: .init(data: data)
+    )
   }
   
   // Route to create a cache region
@@ -271,6 +272,15 @@ struct CacheRegionsController: RouteCollection {
   }
 }
 
+func getRegion(_ db: any SQLDatabase, id: Int) async throws -> MBXCacheRegion {
+  guard let region = try await db.raw(
+    "SELECT * FROM regions WHERE id = \(bind: id)"
+  ).first(decoding: MBXCacheRegion.self) else {
+    throw RuntimeError.databaseError("Region with ID \(id) not found")
+  }
+  return region
+}
+
 func createRegion(_ db: any SQLDatabase, region: MBXCacheRegion) async throws -> MBXCacheRegion {
   let region = try await db.raw(
     "INSERT INTO regions (definition, description) VALUES (\(bind: region.definition), \(bind: region.description)) RETURNING id, definition, description"
@@ -339,6 +349,16 @@ actor WebSocketConnectionManager {
   }
 }
 
+func getImageMimeType(_ data: Data) -> String? {
+  // This function should determine the MIME type of the image data
+  // For simplicity, we can use a basic check here
+  if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { // PNG signature
+    return "image/png"
+  } else if data.starts(with: [0xFF, 0xD8]) { // JPEG signature
+    return "image/jpeg"
+  }
+  return nil // Unknown type
+}
 
 func getTotalSize(db: any SQLDatabase) async throws -> CachedAssetsInfo {
   let sql: SQLQueryString = """
@@ -538,20 +558,9 @@ struct SerializableCacheRegion: Content {
   let definition: MBXCacheRegionDefinition
   let description: MBXCacheRegionDescription
   let assets: CachedAssetsInfo
-  let static_map_url: String?
   let global: Bool
   
   init(from region: MBXCacheRegion, with app: Application) throws {
-    if region.isGlobal {
-      // If the region is global, we don't generate a static map URL
-      self.static_map_url = nil
-    } else {
-      // Build the static map URL
-      self.static_map_url = try buildCacheRegionThumbnailURL(
-        app: app,
-        region: region
-      )
-    }
     guard let assets = region.cachedAssets, let regionID = region.id else {
       throw RuntimeError.databaseError("Region does not have cached assets info")
     }

@@ -54,6 +54,8 @@ enum RuntimeError: Error {
   case configurationError(String)
 }
 
+// map-cache://regions/{id}/thumbnail
+
 struct RequestedResource: Hashable, Equatable {
   let urlTemplate: String
   let kind: ResourceKind
@@ -349,6 +351,65 @@ func downloadRegionAssets(
     }
     return lastVal
   }
+}
+
+func getAndCacheThumbnail(
+  with app: Application,
+  for region: MBXCacheRegion,
+) async throws -> Data? {
+  /**
+   Download a cache thumbnail and persist it to the database, associated with a region.
+   This ensures that a thumbnail will always be available.
+  */
+  if region.isGlobal {
+    return nil
+  }
+  guard let db = app.db as? any SQLDatabase else {
+    throw RuntimeError.databaseError("Database is not an SQLDatabase")
+  }
+  guard let regionID = region.id else {
+    throw RuntimeError.invalidArgument("Region ID is required to download thumbnail")
+  }
+  let template = "map-cache://regions/\(regionID)/thumbnail"
+  guard let url = URL(string: template) else {
+    throw RuntimeError.invalidArgument("Invalid thumbnail URL: \(template)")
+  }
+
+  // try to get the resource from the cache
+  let resource = try await getCachedResource(from: db, url: url)
+  if let data = resource?.data {
+    return data
+  }
+  
+  // get the thumbnail from the web
+  let thumbnailURL = try buildCacheRegionThumbnailURL(app: app, geometry: region.getGeometry().geometry)
+  app.logger.info("Downloading thumbnail from \(thumbnailURL)")
+  let res = try await downloadFile(with: app, url: thumbnailURL)
+  guard res.status == .ok,
+        let body = res.body,
+        body.readableBytes > 0
+  else {
+    throw RuntimeError.invalidArgument("Failed to download file from \(thumbnailURL)")
+  }
+  let data = Data(buffer: body)
+  
+  if compressionAlgorithm(for: data) != nil {
+    throw RuntimeError.invalidArgument(
+      "Thumbnail data should not be compressed, but it is. This is unexpected behavior.")
+  }
+  if getImageMimeType(data) == nil {
+    throw RuntimeError.invalidArgument("Downloaded thumbnail data is not a valid image")
+  }
+  
+  try await persistResource(
+    to: db,
+    url: template,
+    data: data,
+    compressed: false,
+    kind: .thumbnail,
+    regionID: regionID
+  )
+  return data
 }
 
 func compressionAlgorithm(for data: Data?) -> String? {
@@ -812,7 +873,7 @@ extension TileCoord {
 }
 
 func getParentTile(for geom: Geometry) throws -> TileCoord {
-  var tileCoord = TileCoord(0, 0, 0)
+  let tileCoord = TileCoord(0, 0, 0)
 
   // Ensure the tile coord envelope is clipped to the web mercator bounds
   guard let geom1 = try tileCoord.envelope.intersection(with: geom) else {
