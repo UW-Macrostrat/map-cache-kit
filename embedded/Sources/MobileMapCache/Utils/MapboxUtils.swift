@@ -7,6 +7,7 @@
 
 import Foundation
 import Vapor
+import GEOSwift
 
 func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
   var matchURL = url
@@ -342,4 +343,32 @@ func findSourcesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedR
   }
   
   return sourceData
+}
+
+func buildCacheRegionThumbnailURL(app: Application, region: MBXCacheRegion) throws -> String {
+  let staticMapStyle = try app.config.staticMapStyle
+  let baseURLTemplate = "\(staticMapStyle)/static/"
+  
+  let geom = try region.getGeometry()
+  
+  let feat = Feature(geometry: geom, properties: [
+    "fill-color": "#0080ff", // blue color fill
+    "fill-opacity": 0.2,
+    "stroke": "#0080ff"
+  ])
+  
+  let encFeat = try JSONEncoder().encode(feat)
+  guard let overlay = String(data: encFeat, encoding: .utf8)?.replacingOccurrences(of: "#", with: "%23").replacingOccurrences(of: " ", with: "") else {
+    throw RuntimeError.invalidArgument("Failed to encode position for thumbnail URL")
+  }
+  
+  // truncate precision to 4 decimal places
+  let overlay2 = overlay.replacingOccurrences(of: "\\.([0-9]{4})[0-9]+", with: ".$1", options: .regularExpression)
+  
+  let position = "geojson(\(overlay2))/auto"
+  // convert geometry to geojson
+  
+  let baseURL = baseURLTemplate.replacingOccurrences(of: "mapbox//styles", with: "https://api.mapbox.com/styles/v1")
+
+  return baseURL + position + "/130x130@2x"
 }

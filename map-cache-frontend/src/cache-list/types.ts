@@ -72,6 +72,7 @@ export interface MapCacheListing {
   };
   assets?: ResourceInfo;
   status?: CacheRegionProgress;
+  static_map_url?: string; // URL for a static map image of the cache region
 }
 
 export interface CacheData {

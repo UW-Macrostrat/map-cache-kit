@@ -6,6 +6,7 @@ import NIOCore
 
 struct AppConfig {
   let mapboxAPIToken: String?
+  let staticMapStyle: String = "mapbox://styles/jczaplewski/cl3w3bdai001f14ob27ckmpxz"
   let maxConcurrentHTTPConnections: Int = 4
   // Time between http requests during cache downloading
   let httpRequestTimeout: TimeAmount = .milliseconds(200)

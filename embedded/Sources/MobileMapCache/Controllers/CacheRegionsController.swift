@@ -82,9 +82,13 @@ struct CacheRegionsController: RouteCollection {
       .all(decoding: MBXCacheRegion.self)
     
     let total = try await getTotalSize(db: db)
+    
+    let r1 = regions.compactMap {
+      region in try? SerializableCacheRegion(from: region, with: req.application)
+    }
 
     return CacheRegionsInfo(
-      regions: regions,
+      regions: r1,
       assets: total,
       maxNumberOfRegions: (try? req.application.config.maxNumberOfRegions) ?? 10
     )
@@ -433,28 +437,10 @@ struct MBXCacheRegion: Content {
   let cachedAssets: CachedAssetsInfo?
   
   var isGlobal: Bool {
-    let tileCoord = TileCoord(0, 0, 0)
-    do {
-      let geom = try self.getGeometry()
-      let area = try geom.area()
-      
-      let tmsEnvelope = tileCoord.envelope
-      let tmsEnvelope4326 = try MultiPoint(
-        points: [tmsEnvelope.minXMinY, tmsEnvelope.maxXMaxY]
-          .map(webMercatorToEpsg4236)
-      ).envelope()
-      let tmsArea = try tmsEnvelope4326.area()
-      
-      if area > tmsArea * 0.999 && area < tmsArea * 1.25 {
-        return true
-      }
-      return false
-    } catch {
-      return false
-    }
+    (try? isGlobalGeometry(self.getGeometry().geometry)) ?? false
   }
   
-  private func getGeometry() throws -> Polygon {
+  func getGeometry() throws -> Polygon {
     return Polygon(exterior: try Polygon.LinearRing(points: definition.geometry.coordinates[0].map { Point(x: $0[0], y: $0[1]) }))
   }
   
@@ -510,11 +496,63 @@ struct MBXCacheRegion: Content {
     self.cachedAssets = try container.decodeIfPresent(CachedAssetsInfo.self, forKey: .cachedAssets)
     ?? (try? decoder.singleValueContainer().decode(CachedAssetsInfo.self))
   }
+}
+
+struct SerializableCacheRegion: Content {
+  let id: Int
+  let definition: MBXCacheRegionDefinition
+  let description: MBXCacheRegionDescription
+  let assets: CachedAssetsInfo
+  let static_map_url: String?
+  let global: Bool
   
+  init(from region: MBXCacheRegion, with app: Application) throws {
+    if region.isGlobal {
+      // If the region is global, we don't generate a static map URL
+      self.static_map_url = nil
+    } else {
+      // Build the static map URL
+      self.static_map_url = try buildCacheRegionThumbnailURL(
+        app: app,
+        region: region
+      )
+    }
+    guard let assets = region.cachedAssets, let regionID = region.id else {
+      throw RuntimeError.databaseError("Region does not have cached assets info")
+    }
+    
+    self.definition = region.definition
+    self.description = region.description
+    self.global = region.isGlobal
+    self.assets = assets
+    self.id = regionID
+    
+  }
 }
 
 struct CacheRegionsInfo: Content {
-  let regions: [MBXCacheRegion]
+  let regions: [SerializableCacheRegion]
   let assets: CachedAssetsInfo
   let maxNumberOfRegions: Int
+}
+
+func isGlobalGeometry(_ geom: Geometry) -> Bool {
+  let tileCoord = TileCoord(0, 0, 0)
+  do {
+    let area = try geom.area()
+    
+    let tmsEnvelope = tileCoord.envelope
+    let tmsEnvelope4326 = try MultiPoint(
+      points: [tmsEnvelope.minXMinY, tmsEnvelope.maxXMaxY]
+        .map(webMercatorToEpsg4236)
+    ).envelope()
+    let tmsArea = try tmsEnvelope4326.area()
+    
+    if area > tmsArea * 0.999 && area < tmsArea * 1.25 {
+      return true
+    }
+    return false
+  } catch {
+    return false
+  }
 }

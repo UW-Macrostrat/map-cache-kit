@@ -35,6 +35,7 @@ struct CacheRegionDefinition: Codable {
   var pixelRatio: Int
   var glyphsRasterization: Int
   var geometry: Polygon
+  
 
   enum CodingKeys: String, CodingKey {
     case styles

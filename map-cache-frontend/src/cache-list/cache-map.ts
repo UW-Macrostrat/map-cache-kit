@@ -8,6 +8,8 @@ import { useElementSize } from "@macrostrat/ui-components";
 import styles from "./map-caches.module.sass";
 import type { MapCacheListing } from "./types.ts";
 import { Icon } from "@blueprintjs/core";
+import { requestTransformerAtom } from "../state.ts";
+import { useAtomValue } from "jotai";
 
 const h = hyper.styled(styles);
 
@@ -144,6 +146,8 @@ export function StaticCacheMap(props: {
   onClick: () => void;
 }) {
   const { cache, size = 130 } = props;
+
+  const transformRequest = useAtomValue(requestTransformerAtom);
   const width = size;
   const height = size;
   const src = buildStaticMapURL(cache, { width, height });
