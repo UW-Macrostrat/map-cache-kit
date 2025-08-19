@@ -12,7 +12,7 @@ struct AppConfig {
   let httpRequestTimeout: TimeAmount = .milliseconds(200)
   let maxNumberOfRegions: Int = 5
   // If we don't want to download the entire unicode range for each font, we can limit the maximum code point
-  let maxCodePoint: Int = 5000
+  let maxCodePoint: Int = 65535
 }
 
 

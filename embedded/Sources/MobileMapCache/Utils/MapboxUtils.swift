@@ -291,11 +291,13 @@ func findFontStacksRequestedByMapboxStyle(spec: StyleSpec, maxCodePoint: Int = 6
   
   var ranges: [String] = []
   // Go by ranges of 256 up to the max code point
-  for start in stride(from: 0, to: maxCodePoint, by: 256) {
-    if start < (maxCodePoint - 255) {
-      // Normal range
-      ranges.append("\(start)-\(start + 255)")
-    }
+  let _maxCodePoint = maxCodePoint - ((maxCodePoint + 1) % 256)
+  
+  if ((_maxCodePoint+1) % 256) != 0 {
+    throw RuntimeError.invalidArgument("maxCodePoint must be one less than a multiple of 256")
+  }
+  for start in stride(from: 0, to: _maxCodePoint, by: 256) {
+    ranges.append("\(start)-\(start + 255)")
   }
 
   var fontStacks = Set<RequestedResource>()
