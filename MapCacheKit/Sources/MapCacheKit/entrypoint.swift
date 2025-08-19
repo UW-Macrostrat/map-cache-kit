@@ -23,8 +23,11 @@ enum Entrypoint {
       guard let cacheDatabasePath = Environment.get("CACHE_DATABASE") else {
         throw RuntimeError.databaseError("Cache database path not set")
       }
-      
+
       try await configure(app, cacheDatabase: .file(cacheDatabasePath))
+
+      // Auto-migrate database if enabled
+      try await app.autoMigrate()
 
       try await app.execute()
     } catch {
