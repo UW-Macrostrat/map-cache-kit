@@ -145,7 +145,7 @@ export const candidateCacheAreaAtom = atom<CacheArea | null>((get) => {
   // Need this to ensure that the map position updates
   const mapPosition = get(mapPositionAtom);
   const minZoom = Math.min(17, Math.floor(mapPosition.target.zoom));
-  const maxZoom = Math.min(20, minZoom + 4);
+  const maxZoom = Math.min(20, minZoom + 3);
 
   const bounds = map.getBounds();
 
@@ -164,12 +164,6 @@ interface CacheLayers {
   bedrock: boolean;
   basemap: boolean;
   satellite: boolean;
-}
-
-export interface CacheFormData extends CacheLayers {
-  name: string;
-  area: CacheArea;
-  error: string | null;
 }
 
 export const cacheLayersAtom = atom<CacheLayers>({
@@ -195,7 +189,7 @@ const regionNameAtom = atom<Promise<RegionNameInfo>>(async (get) => {
   const regionName = get(userProvidedRegionNameAtom);
   if (regionName != null && regionName.trim() !== "") {
     return {
-      name: regionName.trim(),
+      name: regionName,
       isUserProvided: true,
     };
   }
@@ -216,6 +210,15 @@ const regionNameAtom = atom<Promise<RegionNameInfo>>(async (get) => {
 });
 
 export const newCacheErrorAtom = atom<string | null>(null);
+
+export interface CacheFormData {
+  name: string;
+  area: CacheArea;
+  error: string | null;
+  // TODO: unify 'layers' and 'styles' into a single approach
+  layers: string[];
+  styles: StyleSpecification[];
+}
 
 export const newCacheDataAtom = atom<Promise<CacheFormData>>(async (get) => {
   const showForm = get(showCacheFormAtom);
@@ -367,7 +370,7 @@ const cacheCreateDataAtom = atom(async (get) => {
   return {
     styles: await get(cacheStyleJSONAtom),
     geometry,
-    layers: createLayerList(cache),
+    layers: cache.layers,
     pixel_ratio: 2,
     name,
     max_zoom: properties.maxZoom,

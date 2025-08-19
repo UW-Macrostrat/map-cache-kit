@@ -292,8 +292,10 @@ func findFontStacksRequestedByMapboxStyle(spec: StyleSpec, maxCodePoint: Int = 6
   var ranges: [String] = []
   // Go by ranges of 256 up to the max code point
   for start in stride(from: 0, to: maxCodePoint, by: 256) {
-    let end = min(start + 255, maxCodePoint)
-    ranges.append("\(start)-\(end)")
+    if start < (maxCodePoint - 255) {
+      // Normal range
+      ranges.append("\(start)-\(start + 255)")
+    }
   }
 
   var fontStacks = Set<RequestedResource>()

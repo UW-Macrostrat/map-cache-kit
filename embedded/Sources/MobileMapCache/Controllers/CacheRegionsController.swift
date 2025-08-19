@@ -189,22 +189,26 @@ struct CacheRegionsController: RouteCollection {
     
     throw Abort(.notImplemented, reason: "Region download without style post not implemented yet")
     
-    self.startRegionDownload(req.application, region: region, styles: [])
-    return .ok
+    //self.startRegionDownload(req.application, region: region, styles: [])
+    //return .ok
   }
   
   func startRegionDownload(_ app: Application, region: MBXCacheRegion, styles: [StyleDefinition]) {
+    // TODO: allow the styles to be pre-defined
     guard let regionID = region.id else {
       app.logger.error("Region ID is missing")
       return
     }
     // Start the download process (will run outside of the request lifecycle)
+    let maxCodePoint = (try? app.config.maxCodePoint) ?? 65535
+    
     let task = Task {
       do {
         try await self.downloadRegionAssets(
           app: app,
           region: region,
-          styles: styles
+          styles: styles,
+          options: ResourceFindOptions(maxCodePoint: maxCodePoint)
         )
       } catch let err {
         app.logger.error("\(err)")
@@ -224,7 +228,7 @@ struct CacheRegionsController: RouteCollection {
     return .noContent
   }
   
-  func downloadRegionAssets(app: Application, region: MBXCacheRegion, styles: [StyleDefinition]) async throws {
+  func downloadRegionAssets(app: Application, region: MBXCacheRegion, styles: [StyleDefinition], options: ResourceFindOptions = ResourceFindOptions()) async throws {
     guard let regionID = region.id else {
       throw RuntimeError.databaseError("Region ID is missing")
     }
@@ -240,7 +244,7 @@ struct CacheRegionsController: RouteCollection {
         with: app,
         using: regionDefinition,
         regionID: regionID,
-        options: ResourceFindOptions()
+        options: options
       ) { progress in
       guard let data = try? encoder.encode(progress), let msg = String(data: data, encoding: .utf8) else {
         app.logger.error("Failed to encode progress message")
