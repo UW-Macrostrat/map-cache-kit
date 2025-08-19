@@ -1,6 +1,6 @@
 //
 //  CacheRegionsController.swift
-//  MobileMapCache
+//  MapCacheKit
 //
 //  Created by Daven Quinn on 5/17/25.
 //
@@ -28,7 +28,7 @@ struct CacheRegionsController: RouteCollection {
       req.logger.info("WebSocket connection established")
       await connectionManager.add(ws)
     }
-    
+
     regions.delete(use: self.deleteAllCacheRegions)
     regions.post(":id", "download", use: self.downloadAssets)
     regions.post(":id", "cancel", use: self.cancelRegionDownload)
@@ -36,7 +36,7 @@ struct CacheRegionsController: RouteCollection {
     regions.get(":id", "thumbnail", use: self.getCacheRegionImage)
     regions.post("refresh", use: self.refreshAll)
   }
-  
+
   @Sendable
   func index(req: Request) async throws -> CacheRegionsInfo {
     // Get a list of regions
@@ -82,9 +82,9 @@ struct CacheRegionsController: RouteCollection {
     // Description is a JSON string
     let regions = try await db.raw(sql)
       .all(decoding: MBXCacheRegion.self)
-    
+
     let total = try await getTotalSize(db: db)
-    
+
     let r1 = regions.compactMap {
       region in try? SerializableCacheRegion(from: region, with: req.application)
     }
@@ -95,7 +95,7 @@ struct CacheRegionsController: RouteCollection {
       maxNumberOfRegions: (try? req.application.config.maxNumberOfRegions) ?? 10
     )
   }
-  
+
   @Sendable
   func getCacheRegionImage(req: Request) async throws -> Response {
     guard let id = req.parameters.get("id", as: Int.self) else {
@@ -105,23 +105,23 @@ struct CacheRegionsController: RouteCollection {
     guard let db = req.db as? any SQLDatabase else {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
     }
-    
+
     let region = try await getRegion(db, id: id)
-    
+
     let data = try await getAndCacheThumbnail(
       with: req.application,
       for: region
     )
-  
+
     guard let data, !data.isEmpty else {
       throw Abort(.notFound, reason: "No thumbnail available for region \(id)")
     }
-    
+
     // Check image mime type
     guard let mimeType = getImageMimeType(data) else {
       throw Abort(.internalServerError, reason: "Could not determine image MIME type")
     }
-    
+
     return Response(
       status: .ok,
       headers: HTTPHeaders([
@@ -130,24 +130,24 @@ struct CacheRegionsController: RouteCollection {
       body: .init(data: data)
     )
   }
-  
+
   // Route to create a cache region
   @Sendable
   func create(req: Request) async throws -> MBXCacheRegion {
     let cacheInfo = try req.content.decode(CacheCreationInfo.self)
     let regionCandidate = cacheInfo.synthesizeLegacyDefinition()
-    
+
     // Save the region to the database
     guard let db = req.db as? any SQLDatabase else {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
     }
-    
+
     let region = try await createRegion(db, region: regionCandidate)
     self.startRegionDownload(req.application, region: region, styles: cacheInfo.styles)
-    
+
     return region
   }
-  
+
   @Sendable
   func refreshAll(req: Request) async throws -> HTTPStatus {
     /** Refresh the definitions for all cache regions from the network. Right now, this just refreshes
@@ -155,12 +155,12 @@ struct CacheRegionsController: RouteCollection {
     guard let db = req.db as? any SQLDatabase else {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
     }
-    
+
     try await db.withSession { session in
       let resourceIDs = try await session.raw(
         "SELECT id FROM resources WHERE kind = \(bind: ResourceKind.thumbnail.rawValue)"
       ).all(decodingColumn: "id", as: Int.self)
-      
+
       try await session.raw(
         "DELETE FROM region_resources WHERE resource_id IN (\(bind: resourceIDs))"
       ).run()
@@ -170,7 +170,7 @@ struct CacheRegionsController: RouteCollection {
     }
     return .ok
   }
-  
+
   func downloadAssets(req: Request) async throws -> HTTPStatus {
     guard let id = req.parameters.get("id", as: Int.self) else {
       throw Abort(.badRequest, reason: "Missing region ID")
@@ -180,19 +180,19 @@ struct CacheRegionsController: RouteCollection {
     guard let db = req.db as? any SQLDatabase else {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
     }
-    
+
     guard let region = try await db.raw(
       "SELECT * FROM regions WHERE id = \(bind: id)"
     ).first(decoding: MBXCacheRegion.self) else {
       throw Abort(.notFound, reason: "Region not found")
     }
-    
+
     throw Abort(.notImplemented, reason: "Region download without style post not implemented yet")
-    
+
     //self.startRegionDownload(req.application, region: region, styles: [])
     //return .ok
   }
-  
+
   func startRegionDownload(_ app: Application, region: MBXCacheRegion, styles: [StyleDefinition]) {
     // TODO: allow the styles to be pre-defined
     guard let regionID = region.id else {
@@ -201,7 +201,7 @@ struct CacheRegionsController: RouteCollection {
     }
     // Start the download process (will run outside of the request lifecycle)
     let maxCodePoint = (try? app.config.maxCodePoint) ?? 65535
-    
+
     let task = Task {
       do {
         try await self.downloadRegionAssets(
@@ -218,7 +218,7 @@ struct CacheRegionsController: RouteCollection {
     app.cancelDownloadTask(id: regionID)
     app.addDownloadTask(id: regionID, task: task)
   }
-  
+
   func cancelRegionDownload(req: Request) async throws -> HTTPStatus {
     guard let id = req.parameters.get("id", as: Int.self) else {
       throw Abort(.badRequest, reason: "Missing region ID")
@@ -227,19 +227,19 @@ struct CacheRegionsController: RouteCollection {
     req.application.cancelDownloadTask(id: id)
     return .noContent
   }
-  
+
   func downloadRegionAssets(app: Application, region: MBXCacheRegion, styles: [StyleDefinition], options: ResourceFindOptions = ResourceFindOptions()) async throws {
     guard let regionID = region.id else {
       throw RuntimeError.databaseError("Region ID is missing")
     }
-    
+
     let encoder = JSONEncoder()
-    
+
     let regionDefinition = try region.asRegionDefinition(styles: styles)
-   
+
     app.logger.info("Starting download for region \(regionID)...")
-    
-    _ = try await MobileMapCache
+
+    _ = try await MapCacheKit
       .downloadRegionAssets(
         with: app,
         using: regionDefinition,
@@ -253,7 +253,7 @@ struct CacheRegionsController: RouteCollection {
       try await self.connectionManager.sendToAll(msg)
     }
   }
-  
+
   func deleteCacheRegion(req: Request) async throws -> HTTPStatus {
     guard let id = req.parameters.get("id", as: Int.self) else {
       throw Abort(.badRequest, reason: "Missing region ID")
@@ -263,7 +263,7 @@ struct CacheRegionsController: RouteCollection {
     guard let db = req.db as? any SQLDatabase else {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
     }
-    
+
     req.application.cancelDownloadTask(id: id)
 
     try await db.raw(
@@ -279,13 +279,13 @@ struct CacheRegionsController: RouteCollection {
     try await deleteUnreferencedAssets(db: db, log: req.logger)
     return .noContent
   }
-  
+
   func deleteAllCacheRegions(req: Request) async throws -> HTTPStatus {
     // This route would delete all cache regions and their associated resources
     guard let db = req.db as? any SQLDatabase else {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
     }
-    
+
     for key in req.application.taskStore.keys {
       req.application.cancelDownloadTask(id: key)
     }
@@ -293,9 +293,9 @@ struct CacheRegionsController: RouteCollection {
     try await db.raw("DELETE FROM region_resources").run()
     try await db.raw("DELETE FROM region_tiles").run()
     try await db.raw("DELETE FROM regions").run()
-    
+
     try await deleteUnreferencedAssets(db: db, log: req.logger)
-    
+
     return .noContent
   }
 }
@@ -313,11 +313,11 @@ func createRegion(_ db: any SQLDatabase, region: MBXCacheRegion) async throws ->
   let region = try await db.raw(
     "INSERT INTO regions (definition, description) VALUES (\(bind: region.definition), \(bind: region.description)) RETURNING id, definition, description"
   ).first(decoding: MBXCacheRegion.self)
-  
+
   guard let region else {
     throw RuntimeError.databaseError("Failed to create region")
   }
-  
+
   return region
 }
 
@@ -337,7 +337,7 @@ func deleteUnreferencedAssets(db: any SQLDatabase, log: Logger) async throws {
   """
   let deletedResources = try await db.raw(sql)
     .all(decoding: DeletedAsset.self)
-  
+
   let deletedTiles = try await db.raw(
     """
     DELETE FROM tiles WHERE id NOT IN (
@@ -346,12 +346,12 @@ func deleteUnreferencedAssets(db: any SQLDatabase, log: Logger) async throws {
     RETURNING id, length(data) size
     """
   ).all(decoding: DeletedAsset.self)
-  
+
   let deletedAssets = deletedResources + deletedTiles
-  
+
   let totalSize = deletedAssets.reduce(0) { $0 + ($1.size ?? 0) }
   let totalCount = deletedAssets.count
-  
+
   log.info("Deleted \(totalCount) unreferenced assets, total size: \(totalSize) bytes")
 }
 
@@ -408,7 +408,7 @@ func getTotalSize(db: any SQLDatabase) async throws -> CachedAssetsInfo {
         coalesce(tc.tile_count, 0) tile_count
       FROM resources_count rc, tiles_count tc;
     """
-  
+
   guard let res = try await db.raw(sql).first(decoding: CachedAssetsInfo.self) else {
     throw RuntimeError.databaseError("Could not find cache assets info")
   }
@@ -426,7 +426,7 @@ struct CacheCreationInfo: Content {
   let styles: [StyleDefinition]
   let name: String
   let layers: [String]
-  
+
   enum CodingKeys: String, CodingKey {
     case minZoom = "min_zoom"
     case maxZoom = "max_zoom"
@@ -436,7 +436,7 @@ struct CacheCreationInfo: Content {
     case name
     case layers
   }
-  
+
   func synthesizeLegacyDefinition() -> MBXCacheRegion {
     let def = MBXCacheRegionDefinition(
       styleURL: "local://test",
@@ -446,9 +446,9 @@ struct CacheCreationInfo: Content {
       glyphsRasterization: 0, // Default value for legacy
       geometry: geometry
     )
-    
+
     let now = Date().ISO8601Format()
-    
+
     let desc = MBXCacheRegionDescription(
       layers: layers,
       styleVersion: styleCacheVersion,
@@ -456,7 +456,7 @@ struct CacheCreationInfo: Content {
       name: name,
       created: now
     )
-    
+
     return MBXCacheRegion(
       definition: def,
       description: desc
@@ -480,7 +480,7 @@ struct MBXCacheRegionDefinition: Content {
   let pixelRatio: Double
   let glyphsRasterization: Int
   let geometry: PolygonGeometry
-  
+
   enum CodingKeys: String, CodingKey {
     case styleURL = "style_url"
     case minZoom = "min_zoom"
@@ -504,7 +504,7 @@ struct CachedAssetsInfo: Content {
   let tileSize: Int
   let resourceCount: Int
   let tileCount: Int
-  
+
   enum CodingKeys : String, CodingKey {
     case resourceSize = "resource_size"
     case tileSize = "tile_size"
@@ -518,15 +518,15 @@ struct MBXCacheRegion: Content {
   let definition: MBXCacheRegionDefinition
   let description: MBXCacheRegionDescription
   let cachedAssets: CachedAssetsInfo?
-  
+
   var isGlobal: Bool {
     (try? isGlobalGeometry(self.getGeometry().geometry)) ?? false
   }
-  
+
   func getGeometry() throws -> Polygon {
     return Polygon(exterior: try Polygon.LinearRing(points: definition.geometry.coordinates[0].map { Point(x: $0[0], y: $0[1]) }))
   }
-  
+
   func asRegionDefinition(styles: [StyleDefinition]) throws -> CacheRegionDefinition {
     return CacheRegionDefinition(
       styles: styles,
@@ -537,7 +537,7 @@ struct MBXCacheRegion: Content {
       geometry: try self.getGeometry()
     )
   }
-  
+
   enum CodingKeys: String, CodingKey {
     case id
     case definition
@@ -545,7 +545,7 @@ struct MBXCacheRegion: Content {
     case isGlobal = "global"
     case cachedAssets = "assets"
   }
-  
+
   init(
     id: Int? = nil,
     definition: MBXCacheRegionDefinition,
@@ -557,7 +557,7 @@ struct MBXCacheRegion: Content {
     self.description = description
     self.cachedAssets = cachedAssets
   }
-  
+
   // Allow encoding of isGlobal as a computed property, but ignore it if sent
   func encode(to encoder: any Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
@@ -567,13 +567,13 @@ struct MBXCacheRegion: Content {
     try container.encode(isGlobal, forKey: .isGlobal)
     try container.encode(cachedAssets, forKey: .cachedAssets)
   }
-  
+
   init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.id = try container.decodeIfPresent(Int.self, forKey: .id)
     self.definition = try container.decode(MBXCacheRegionDefinition.self, forKey: .definition)
     self.description = try container.decode(MBXCacheRegionDescription.self, forKey: .description)
-    
+
     // First try decoding a nested "assets" field, and then try decoding
     // the cached asset keys directly from this object (this handles database row decoding)
     self.cachedAssets = try container.decodeIfPresent(CachedAssetsInfo.self, forKey: .cachedAssets)
@@ -587,18 +587,18 @@ struct SerializableCacheRegion: Content {
   let description: MBXCacheRegionDescription
   let assets: CachedAssetsInfo
   let global: Bool
-  
+
   init(from region: MBXCacheRegion, with app: Application) throws {
     guard let assets = region.cachedAssets, let regionID = region.id else {
       throw RuntimeError.databaseError("Region does not have cached assets info")
     }
-    
+
     self.definition = region.definition
     self.description = region.description
     self.global = region.isGlobal
     self.assets = assets
     self.id = regionID
-    
+
   }
 }
 
@@ -612,14 +612,14 @@ func isGlobalGeometry(_ geom: Geometry) -> Bool {
   let tileCoord = TileCoord(0, 0, 0)
   do {
     let area = try geom.area()
-    
+
     let tmsEnvelope = tileCoord.envelope
     let tmsEnvelope4326 = try MultiPoint(
       points: [tmsEnvelope.minXMinY, tmsEnvelope.maxXMaxY]
         .map(webMercatorToEpsg4236)
     ).envelope()
     let tmsArea = try tmsEnvelope4326.area()
-    
+
     if area > tmsArea * 0.999 && area < tmsArea * 1.25 {
       return true
     }

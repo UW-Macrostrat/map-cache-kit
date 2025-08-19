@@ -6,8 +6,8 @@ DerivedData/
 Data/
 .DS_Store
 db.sqlite
-.swiftpm
 .env
 .env.*
 !.env.example
-!.swiftpm/MobileMapCache.xctestplan
+.swiftpm/*
+!.swiftpm/MapCacheKit.xctestplan

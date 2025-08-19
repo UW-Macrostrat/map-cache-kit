@@ -29,7 +29,7 @@ struct ConcurrentDownloadManagerKey: StorageKey {
 }
 
 extension Application {
-  
+
   var config: AppConfig {
     get throws {
       guard let res = self.storage.get(ConfigurationKey.self) else {
@@ -38,7 +38,7 @@ extension Application {
       return res
     }
   }
-  
+
   var downloadManger: ConcurrentDownloadManager {
     get throws {
       let cfg = try self.config
@@ -53,7 +53,7 @@ extension Application {
       }
     }
   }
-  
+
   var taskStore: [Int: Task<Void, any Error>] {
     get {
       self.storage.get(DownloadTaskStoreKey.self) ?? [:]
@@ -62,11 +62,11 @@ extension Application {
       self.storage.set(DownloadTaskStoreKey.self, to: newValue)
     }
   }
-  
+
   func addDownloadTask(id: Int, task: Task<Void, any Error>) {
     self.taskStore[id] = task
   }
-  
+
   func cancelDownloadTask(id: Int) {
     if let task = self.taskStore.removeValue(forKey: id) {
       task.cancel()
@@ -79,16 +79,16 @@ public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration) as
   // uncomment to serve files from /Public folder
   // app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
   //
- 
+
   let apiToken = Environment.get("MAPBOX_API_KEY")
-    
+
   let cfg = AppConfig(mapboxAPIToken: apiToken)
   await app.storage.setWithAsyncShutdown(ConfigurationKey.self, to: cfg)
-  
-  app.logger.info("Configuring MobileMapCache with database: \(cacheDatabase.storage)")
+
+  app.logger.info("Configuring MapCacheKit with database: \(cacheDatabase.storage)")
 
   app.databases.use(DatabaseConfigurationFactory.sqlite(cacheDatabase), as: .sqlite)
-  
+
   //app.migrations.add(CreateTodo())
   app.migrations.add(CreateDatabaseSchema())
 

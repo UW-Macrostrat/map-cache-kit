@@ -1,5 +1,5 @@
 {
-  "originHash" : "f80fa0869b07faadd464f9c74d369fc81487c8bb6948b6c9f4f930504caedb12",
+  "originHash" : "f35d7bf1b3d396c6d89d1e7146431a8875590c8461b03e9295f13820e016d704",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -141,8 +141,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-asn1.git",
       "state" : {
-        "revision" : "a54383ada6cecde007d374f58f864e29370ba5c3",
-        "version" : "1.3.2"
+        "revision" : "f70225981241859eb4aa1a18a75531d26637c8cc",
+        "version" : "1.4.0"
       }
     },
     {
@@ -195,8 +195,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-distributed-tracing.git",
       "state" : {
-        "revision" : "a64a0abc2530f767af15dd88dda7f64d5f1ff9de",
-        "version" : "1.2.0"
+        "revision" : "b78796709d243d5438b36e74ce3c5ec2d2ece4d8",
+        "version" : "1.2.1"
       }
     },
     {
@@ -319,7 +319,7 @@
     {
       "identity" : "swifttilematrix",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Mapboard/SwiftTileMatrix",
+      "location" : "https://github.com/Mapboard/SwiftTileMatrix.git",
       "state" : {
         "branch" : "main",
         "revision" : "2d9485651488655d62e5ecb9934c9b2010d2cf5c"

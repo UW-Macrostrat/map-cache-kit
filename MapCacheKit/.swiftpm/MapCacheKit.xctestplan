@@ -1,0 +1,29 @@
+{
+  "configurations" : [
+    {
+      "id" : "044CD8AE-C32D-4277-89F6-2F0F8D842C1A",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : false,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:",
+      "identifier" : "MapCacheKit",
+      "name" : "MapCacheKit"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "MapCacheKitTests",
+        "name" : "MapCacheKitTests"
+      }
+    }
+  ],
+  "version" : 1
+}
