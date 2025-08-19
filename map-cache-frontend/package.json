@@ -1,0 +1,48 @@
+{
+  "name": "map-cache-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@blueprintjs/core": "^5.19.0",
+    "@macrostrat/hyper": "^3.0.6",
+    "@macrostrat/map-interface": "^1.3.0",
+    "@macrostrat/mapbox-react": "^2.6.0",
+    "@macrostrat/mapbox-utils": "^1.5.0",
+    "@macrostrat/style-system": "^0.2.1",
+    "@macrostrat/ui-components": "^4.2.0",
+    "@turf/bbox": "^7.2.0",
+    "@turf/bbox-polygon": "^7.2.0",
+    "@types/geojson": "^7946.0.16",
+    "jotai": "^2.13.1",
+    "jotai-location": "^0.6.1",
+    "mapbox-gl": "^3.14.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-use-websocket": "^4.13.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.25.0",
+    "@types/chroma-js": "^3",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "eslint": "^9.25.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "globals": "^16.0.0",
+    "prettier": "^3.5.3",
+    "sass-embedded": "^1.89.2",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.30.1",
+    "vite": "^6.3.5"
+  },
+  "packageManager": "yarn@4.9.2",
+  "prettier": {}
+}

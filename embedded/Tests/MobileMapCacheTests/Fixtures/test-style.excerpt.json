@@ -1,0 +1,23 @@
+{
+  "version": 8,
+  "name": "Macrostrat dark v2",
+  "sources": {
+    "mapbox://mapbox.mapbox-terrain-dem-v1": {
+      "url": "mapbox://mapbox.mapbox-terrain-dem-v1",
+      "type": "raster-dem",
+      "tileSize": 256
+    },
+    "composite": {
+      "url": "mapbox://mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2?style=mapbox://styles/jczaplewski/cl5uoqzzq003614o6url9ou9z@1721538724006",
+      "type": "vector"
+    }
+  },
+  "sprite": "mapbox://sprites/jczaplewski/cl5uoqzzq003614o6url9ou9z/4cwgwep66g5zszejemkeyzdtp",
+  "glyphs": "mapbox://fonts/mapbox/{fontstack}/{range}.pbf",
+  "layers": [],
+  "id": "cl5uoqzzq003614o6url9ou9z",
+  "owner": "jczaplewski",
+  "visibility": "private",
+  "protected": false,
+  "draft": false
+}
