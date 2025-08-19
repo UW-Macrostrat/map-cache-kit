@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "MobileMapCache",
+    name: "MapCacheKit",
     platforms: [
        .macOS(.v13)
     ],
@@ -26,7 +26,7 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "MobileMapCache",
+            name: "MapCacheKit",
             dependencies: [
                 .product(name: "Fluent", package: "fluent"),
                 .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver"),
@@ -42,9 +42,9 @@ let package = Package(
             swiftSettings: swiftSettings
         ),
         .testTarget(
-            name: "MobileMapCacheTests",
+            name: "MapCacheKitTests",
             dependencies: [
-                .target(name: "MobileMapCache"),
+                .target(name: "MapCacheKit"),
                 .product(name: "VaporTesting", package: "vapor"),
                 .product(name: "Numerics", package: "swift-numerics"),
             ],

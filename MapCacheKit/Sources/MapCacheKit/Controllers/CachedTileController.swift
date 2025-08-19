@@ -1,6 +1,6 @@
 //
 //  CachedTileController.swift
-//  MobileMapCache
+//  MapCacheKit
 //
 //  Created by Daven Quinn on 5/18/25.
 //
@@ -15,53 +15,53 @@ typealias QueryParams = [
 struct CachedTileController: RouteCollection {
   func boot(routes: any RoutesBuilder) throws {
     let tiles = routes.grouped("tiles")
-   
+
     tiles.get("**", use: self.catchAll)
   }
-  
+
   @Sendable
   func catchAll(req: Request) async throws -> Response {
-    
+
     let path = req.parameters.getCatchall().joined(separator: "/")
-    
+
     // get all query parametrs
     guard var queryParams = try? req.query.decode(QueryParams.self) else {
       throw Abort(.badRequest, reason: "Could not decode query parameters")
     }
-    
+
     func getQueryParam(_ key: String, _ defaultValue: String) -> String {
       guard let val = queryParams.removeValue(forKey: key) else {
         return defaultValue
       }
       return val ?? defaultValue
     }
-    
-    
+
+
     guard let q1 = queryParams.removeValue(forKey: "x-cache-domain"),
       var cacheDomain = q1 else {
       throw Abort(.badRequest, reason: "Missing x-cache-domain parameter")
     }
-    
+
     let cacheScheme = getQueryParam("x-cache-scheme", "https")
-    
+
     guard let cacheMode = MapCachePriority(rawValue: getQueryParam("x-cache-mode", "cache-then-network").lowercased()) else {
       throw Abort(.badRequest, reason: "Invalid cache mode")
     }
-    
+
     if !cacheDomain.hasPrefix("https://") && !cacheDomain.hasPrefix("http://") {
       cacheDomain = "\(cacheScheme)://\(cacheDomain)"
     }
-   
+
     guard let domainURL = URL(string: cacheDomain),
       let url1 = URL(string: path, relativeTo: domainURL)
     else {
       throw Abort(.badRequest, reason: "Could not decode URL")
     }
-    
+
     guard let db = req.db as? any SQLDatabase else {
       throw Abort(.internalServerError, reason: "Database is not SQLDatabase")
     }
-        
+
     // Raster URL does not support OPTIONS requests
     if cacheMode != .network {
       if let cachedResponse = try await getCachedResource(from: db, url: url1) {
@@ -70,11 +70,11 @@ struct CachedTileController: RouteCollection {
           "Cache-Control": "public, max-age=31536000",
           "X-Cache": "hit",
         ], body: .init(data: cachedResponse.data))
-        
+
         if let encoding = compressionAlgorithm(for: cachedResponse.data) {
           res.headers.add(name: "Content-Encoding", value: encoding)
         }
-        
+
         return res
       } else if cacheMode == .cache {
         throw Abort(.notFound, reason: "Cache miss")
@@ -82,13 +82,13 @@ struct CachedTileController: RouteCollection {
     }
     // If in cache-then-network mode without a tile, or in network mode, we need to redirect
     // to the original URL
-    
+
     // Add query parameters to URL
     var url2 = url1
     if !queryParams.isEmpty {
       url2.append(queryItems: queryParams.map { (key, value) in URLQueryItem(name: key, value: value) })
     }
-    
+
     return req.redirect(to: url2.absoluteString, redirectType: .temporary)
   }
 }
@@ -104,12 +104,12 @@ struct ResourceRow: Content {
   let url: String
   let compressed: Bool
 }
-  
+
 func getCacheMode(req: Request) throws -> MapCachePriority {
   guard let cacheMode = req.headers.first(name: "x-cache-mode") else {
     return .cacheThenNetwork
   }
-  
+
   let mode = MapCachePriority(rawValue: cacheMode.lowercased())
   if let mode = mode {
     return mode
@@ -125,11 +125,11 @@ func getCachedResource(from db: any SQLDatabase, url: URL, forceDownscale: Bool 
   //      // If we are not online, we want to load anything we can grab, so we force tiles to downscale.
   //      matchURL = matchURL.replacingOccurrences(of: "@2x", with: "")
   //    }
-    
+
   let path = matchParams.templateURL
 
   let sql: SQLQueryString
-  
+
   switch matchParams.cacheType {
   case .tile(let tileIndex):
     sql = """
@@ -160,11 +160,11 @@ func getCachedResource(from db: any SQLDatabase, url: URL, forceDownscale: Bool 
   }
 
   let row = try await db.raw(sql).first(decoding: ResourceRow.self)
-  
+
   guard let res = row else {
     return nil
   }
-  
+
   let uuid = UUID()
   let response = TileResponse(
     data: res.data,

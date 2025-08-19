@@ -1,6 +1,6 @@
 //
 //  MapboxUtils.swift
-//  MobileMapCache
+//  MapCacheKit
 //
 //  Created by Daven Quinn on 5/18/25.
 //
@@ -11,7 +11,7 @@ import GEOSwift
 
 func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
   var matchURL = url
-  
+
   let stylePrefix = "https://api.mapbox.com/styles/v1/"
   if matchURL.starts(with: stylePrefix) {
     matchURL = matchURL.replacingOccurrences(of: stylePrefix, with: "")
@@ -27,7 +27,7 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
     }
     return CacheResourceInfo(inputURL: url, templateURL: matchURL, cacheType: .resource, thirdParty: false)
   }
-  
+
   let fontsPrefix = "https://api.mapbox.com/fonts/v1/"
   if matchURL.starts(with: fontsPrefix) {
     // For some reason, we need to escape commas appropriately
@@ -39,7 +39,7 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
       thirdParty: false
     )
   }
-  
+
   let tilePrefix = "https://api.mapbox.com/v4/"
   if matchURL.starts(with: tilePrefix) && matchURL.hasSuffix(".json") {
     // this is a source
@@ -51,16 +51,16 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
       thirdParty: false
     )
   }
-  
+
   // We are dealing with a tile request
   matchURL = matchURL.replacingOccurrences(of: tilePrefix, with: "mapbox://tiles/")
   let thirdParty = !matchURL.starts(with: "mapbox://")
-  
+
   let ext = (matchURL as NSString).pathExtension
-  
+
   let hasTileSuffix = imageExtensions.contains(ext)
-  
-  
+
+
   if !thirdParty || hasTileSuffix {
     // First-party tiles are never cached as webp
     if !thirdParty {
@@ -82,7 +82,7 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
         matchURL = matchURL.replacingOccurrences(of: tileIndex, with: "/{z}/{x}/{y}")
       }
     }
-    
+
     if let type = cacheType {
       return CacheResourceInfo(
         inputURL: url,
@@ -92,7 +92,7 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
       )
     }
   }
-  
+
   return CacheResourceInfo(
     inputURL: url,
     templateURL: url,
@@ -108,12 +108,12 @@ func getDownloadURL(tile: CandidateTile, params: [String: String?] = [:]) -> URI
     .replacingOccurrences(of: "{y}", with: "\(tile.y)")
     .replacingOccurrences(of: "{ratio}", with: "@2x")
     .replacingOccurrences(of: "mapbox://tiles", with: "https://api.mapbox.com/v4")
-  
+
   // Replace webp
   if tileURL.hasSuffix(".webp") {
     tileURL = tileURL.replacingOccurrences(of: ".webp", with: ".png")
   }
-  
+
   var uri = URI(string: tileURL)
   uri.query = buildParams(params)
   return uri
@@ -147,7 +147,7 @@ func getDownloadURL(_ resource: RequestedResource, params: [String: String?] = [
     resourceURL = resourceURL.replacingOccurrences(of: "mapbox://", with: "https://api.mapbox.com/v4/")
     resourceURL += ".json"
   }
-  
+
 
   var uri = URI(string: resourceURL)
   // Encode URL parameters if provided
@@ -208,19 +208,19 @@ struct ResourceFindOptions {
 
 func findResourcesRequestedByMapboxStyle(spec: StyleSpec, options: ResourceFindOptions = ResourceFindOptions()) throws -> Set<RequestedResource> {
   var resources = Set<RequestedResource>()
-  
+
   // Find font stacks
   let fontStacks = try findFontStacksRequestedByMapboxStyle(spec: spec, maxCodePoint: options.maxCodePoint)
   resources.formUnion(fontStacks.map { RequestedResource(urlTemplate: $0.urlTemplate, kind: .font) })
-  
+
   // Find sprites
   let sprites = try findSpritesRequestedByMapboxStyle(spec: spec)
   resources.formUnion(sprites)
-  
+
   // Find sources
   let sources = try findSourcesRequestedByMapboxStyle(spec: spec)
   resources.formUnion(sources)
-  
+
   return resources
 }
 
@@ -238,9 +238,9 @@ func findFontsRequestedByMapboxStyle(spec: StyleSpec) -> Set<String> {
       case .expression(let value):
         // Traverse the expression to find any "literal" values
         // This may not get everything but it will be pretty good
-        
+
         let literals = value.literals()
-        
+
         for stack in literals {
           let val = stack.joined(separator: ",")
           fontStacks.insert(val)
@@ -257,7 +257,7 @@ func buildFontStackURL(_ urlTemplate: String, fontStack: String, range: String) 
     .replacingOccurrences(of: ",", with: "%2c")
     .replacingOccurrences(of: "/", with: "%2f")
     .replacingOccurrences(of: ":", with: "%3a")
-  
+
   // Construct the URL for the font stack
   return urlTemplate
     .replacingOccurrences(of: "{fontstack}", with: encodedFontStack)
@@ -275,7 +275,7 @@ func getFontStackURLs(_ styleSpec: StyleSpec, fontStacks: [String], ranges: [Str
   } else {
     return []
   }
-  
+
   var fontStackURLs: [String] = []
   for fontStack in fontStacks {
     for range in ranges {
@@ -286,13 +286,13 @@ func getFontStackURLs(_ styleSpec: StyleSpec, fontStacks: [String], ranges: [Str
 }
 
 func findFontStacksRequestedByMapboxStyle(spec: StyleSpec, maxCodePoint: Int = 65535) throws -> Set<RequestedResource> {
-  
+
   let fonts = Array(findFontsRequestedByMapboxStyle(spec: spec))
-  
+
   var ranges: [String] = []
   // Go by ranges of 256 up to the max code point
   let _maxCodePoint = maxCodePoint - ((maxCodePoint + 1) % 256)
-  
+
   if ((_maxCodePoint+1) % 256) != 0 {
     throw RuntimeError.invalidArgument("maxCodePoint must be one less than a multiple of 256")
   }
@@ -302,11 +302,11 @@ func findFontStacksRequestedByMapboxStyle(spec: StyleSpec, maxCodePoint: Int = 6
 
   var fontStacks = Set<RequestedResource>()
   let fontStackURLs = getFontStackURLs(spec, fontStacks: fonts, ranges: ranges)
-  
+
   for url in fontStackURLs {
     fontStacks.insert(RequestedResource(urlTemplate: url, kind: .font))
   }
-  
+
   return fontStacks
 }
 
@@ -317,7 +317,7 @@ func findSpritesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedR
   }
   let kinds: [ResourceKind] = [.sprite, .spritejson]
   let suffixes = ["", "@2x"]
-  
+
   // Iterate over each kind and suffix to generate the URLs
   for kind in kinds {
     let kindExt = kind == .sprite ? ".png" : ".json"
@@ -331,7 +331,7 @@ func findSpritesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedR
 
 func findSourcesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedResource> {
   var sourceData: Set<RequestedResource> = []
-  
+
   for source in spec.sources.values {
     switch source.type {
     case .raster, .vector, .rasterDem, .geojson:
@@ -356,18 +356,18 @@ func buildCacheRegionThumbnailURL(app: Application, geometry: Geometry) throws -
     "fill-opacity": 0.2,
     "stroke": "#0080ff"
   ])
-  
+
   let encFeat = try JSONEncoder().encode(feat)
   guard let overlay = String(data: encFeat, encoding: .utf8) else {
     throw RuntimeError.invalidArgument("Failed to encode position for thumbnail URL")
   }
   let overlay2 = overlay.replacingOccurrences(of: "\\.([0-9]{4})[0-9]+", with: ".$1", options: .regularExpression)
   let position = "geojson(\(overlay2))/auto"
-  
+
   let baseURL = baseURLTemplate
     .replacingOccurrences(of: "{position}", with: position)
     .replacingOccurrences(of: "mapbox://styles", with: "/styles/v1")
-  
+
   return URI(
     scheme: "https",
     host: "api.mapbox.com",
