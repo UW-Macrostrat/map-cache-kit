@@ -9,8 +9,8 @@ struct AppConfig {
   let staticMapStyle: String = "mapbox://styles/jczaplewski/cl3w3bdai001f14ob27ckmpxz"
   let maxConcurrentHTTPConnections: Int = 4
   // Time between http requests during cache downloading
-  let httpRequestTimeout: TimeAmount = .milliseconds(200)
-  let maxNumberOfRegions: Int = 5
+  let httpRequestTimeout: TimeAmount = .milliseconds(50)
+  let maxNumberOfRegions: Int = 10
   // If we don't want to download the entire unicode range for each font, we can limit the maximum code point
   let maxCodePoint: Int = 65535
 }
