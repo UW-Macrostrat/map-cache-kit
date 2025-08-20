@@ -4,15 +4,34 @@ import NIOSSL
 import Vapor
 import NIOCore
 
-struct AppConfig {
+public struct AppConfig : Sendable {
   let mapboxAPIToken: String?
-  let staticMapStyle: String = "mapbox://styles/jczaplewski/cl3w3bdai001f14ob27ckmpxz"
-  let maxConcurrentHTTPConnections: Int = 4
+  let staticMapStyle: String
+  let maxConcurrentHTTPConnections: Int
   // Time between http requests during cache downloading
-  let httpRequestTimeout: TimeAmount = .milliseconds(50)
-  let maxNumberOfRegions: Int = 10
+  let httpRequestTimeout: TimeAmount
+  let maxNumberOfRegions: Int
   // If we don't want to download the entire unicode range for each font, we can limit the maximum code point
-  let maxCodePoint: Int = 65535
+  let maxCodePoint: Int
+  let autoMigrate: Bool
+  
+  public init(
+    mapboxAPIToken: String?,
+    staticMapStyle: String = "mapbox://styles/jczaplewski/cl3w3bdai001f14ob27ckmpxz",
+    maxConcurrentHTTPConnections: Int = 4,
+    httpRequestTimeout: TimeAmount = .milliseconds(50),
+    maxNumberOfRegions: Int = 10,
+    maxCodePoint: Int = 65535,
+    autoMigrate: Bool = true,
+  ) {
+    self.mapboxAPIToken = mapboxAPIToken
+    self.staticMapStyle = staticMapStyle
+    self.maxConcurrentHTTPConnections = maxConcurrentHTTPConnections
+    self.httpRequestTimeout = httpRequestTimeout
+    self.maxNumberOfRegions = maxNumberOfRegions
+    self.maxCodePoint = maxCodePoint
+    self.autoMigrate = autoMigrate
+  }
 }
 
 
@@ -75,15 +94,11 @@ extension Application {
 }
 
 // configures your application
-public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration) async throws {
+public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration, config: AppConfig) async throws {
   // uncomment to serve files from /Public folder
   // app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
-  //
-
-  let apiToken = Environment.get("MAPBOX_API_KEY")
-
-  let cfg = AppConfig(mapboxAPIToken: apiToken)
-  await app.storage.setWithAsyncShutdown(ConfigurationKey.self, to: cfg)
+  //  
+  await app.storage.setWithAsyncShutdown(ConfigurationKey.self, to: config)
 
   app.logger.info("Configuring MapCacheKit with database: \(cacheDatabase.storage)")
 
@@ -91,7 +106,12 @@ public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration) as
 
   //app.migrations.add(CreateTodo())
   app.migrations.add(CreateDatabaseSchema())
-
+  
+  if config.autoMigrate {
+    // Auto-migrate database if enabled
+    try await app.autoMigrate()
+  }
+    
   // register routes
   try routes(app)
 }

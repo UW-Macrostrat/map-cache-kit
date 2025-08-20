@@ -24,12 +24,14 @@ enum Entrypoint {
       guard let cacheDatabasePath = Environment.get("CACHE_DATABASE") else {
         throw Abort(.internalServerError, reason: "CACHE_DATABASE environment variable not set")
       }
+      
+      let apiToken = Environment.get("MAPBOX_API_KEY")
 
-      try await configure(app, cacheDatabase: .file(cacheDatabasePath))
-
-      // Auto-migrate database if enabled
-      try await app.autoMigrate()
-
+      try await configure(app, cacheDatabase: .file(cacheDatabasePath), config: AppConfig(
+        mapboxAPIToken: apiToken,
+        autoMigrate: false
+      ))
+      
       try await app.execute()
     } catch {
       app.logger.report(error: error)

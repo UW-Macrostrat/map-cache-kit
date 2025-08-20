@@ -489,8 +489,8 @@ struct CacheCreationInfo: Content {
       geometry: geometry
     )
 
-    let now = Date().ISO8601Format()
-
+    let formatter = ISO8601DateFormatter()
+    let now = formatter.string(from: Date())
     let desc = MBXCacheRegionDescription(
       layers: layers,
       styleVersion: styleCacheVersion,

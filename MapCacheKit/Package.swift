@@ -5,7 +5,7 @@ let package = Package(
     name: "MapCacheKit",
     platforms: [
        .macOS(.v13),
-       .iOS(.v12),
+       .iOS(.v15),
        .custom("Linux", versionString: "5.3"),
     ],
     products: [
