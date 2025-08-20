@@ -4,7 +4,12 @@ import PackageDescription
 let package = Package(
     name: "MapCacheKit",
     platforms: [
-       .macOS(.v13)
+       .macOS(.v13),
+       .iOS(.v12),
+       .custom("Linux", versionString: "5.3"),
+    ],
+    products: [
+      .library(name: "MapCacheKit", targets: ["MapCacheKit"])
     ],
     dependencies: [
         // 💧 A server-side Swift web framework.
@@ -23,7 +28,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-numerics", from: "1.0.0"),
     ],
     targets: [
-        .executableTarget(
+        .target(
             name: "MapCacheKit",
             dependencies: [
                 .product(name: "Fluent", package: "fluent"),
@@ -39,6 +44,7 @@ let package = Package(
             ],
             swiftSettings: swiftSettings
         ),
+        .executableTarget(name: "map-cache", dependencies: ["MapCacheKit"]),
         .testTarget(
             name: "MapCacheKitTests",
             dependencies: [

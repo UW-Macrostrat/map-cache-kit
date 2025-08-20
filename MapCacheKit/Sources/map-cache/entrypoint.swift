@@ -3,6 +3,7 @@ import Logging
 import NIOCore
 import NIOPosix
 import Vapor
+import MapCacheKit
 
 @main
 enum Entrypoint {
@@ -21,7 +22,7 @@ enum Entrypoint {
 
     do {
       guard let cacheDatabasePath = Environment.get("CACHE_DATABASE") else {
-        throw RuntimeError.databaseError("Cache database path not set")
+        throw Abort(.internalServerError, reason: "CACHE_DATABASE environment variable not set")
       }
 
       try await configure(app, cacheDatabase: .file(cacheDatabasePath))
