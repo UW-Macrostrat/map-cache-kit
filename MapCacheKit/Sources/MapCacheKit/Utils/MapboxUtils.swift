@@ -131,7 +131,7 @@ func buildParams(_ params: [String: String?]) -> String? {
 
 let imageExtensions = Set(["webp", "png", "jpg", "jpeg", "mvt", "pbf"])
 
-struct TileIndex: Hashable, Equatable, Sendable {
+public struct TileIndex: Hashable, Equatable, Sendable {
   let x: Int
   let y: Int
   let z: Int
@@ -143,7 +143,7 @@ struct TileIndex: Hashable, Equatable, Sendable {
 
 
 
-enum AssetType: Hashable, Equatable {
+public enum AssetType: Hashable, Equatable, Sendable {
   case tile(TileIndex)
   case resource(ResourceKind)
 }

@@ -57,20 +57,20 @@ enum RuntimeError: Error {
 // map-cache://regions/{id}/thumbnail
 
 public struct RequestedAsset: Hashable, Equatable, Sendable {
-  let urlTemplate: String
-  let type: AssetType
-  
-  var isMapboxAsset: Bool {
+  public let urlTemplate: String
+  public let type: AssetType
+
+  public var isMapboxAsset: Bool {
     return urlTemplate.hasPrefix("mapbox://")
   }
-  
+
   func isResource(type: ResourceKind) -> Bool {
     if case .resource(let kind) = self.type {
       return kind == type
     }
     return false
   }
-  
+
   func isTile() -> Bool {
     if case .tile(_) = self.type {
       return true
@@ -149,13 +149,13 @@ func downloadRegionAssets(
   for resource in assets.resources.alreadyDownloaded {
     try await insertLink(db, regionID: regionID, resourceID: resource)
   }
-  
+
   let requestedAssets: Set<RequestedAsset> = assets.resources.toDownload.union(assets.tiles.toDownload)
 
   let downloadTasks: [@Sendable () async throws -> DownloadResult] = requestedAssets.map { asset in
     return {
       try Task.checkCancellation()
-      
+
       let params = try app.config.methods.addParams(app: app, for: asset)
       let url = buildDownloadURL(for: asset, params: params)
       do {
@@ -333,7 +333,7 @@ func getAndCacheThumbnail(
   let thumbnailURL = try buildCacheRegionThumbnailURL(app: app, geometry: region.getGeometry().geometry)
   app.logger.info("Downloading thumbnail from \(thumbnailURL)")
   guard let data = try await getData(app, url: thumbnailURL),
-        getImageMimeType(data) == nil
+        getImageMimeType(data) != nil
   else {
     throw RuntimeError.invalidArgument("Downloaded thumbnail data is not a valid image")
   }
@@ -414,9 +414,9 @@ struct ExistingAssetInfo: Content {
 func getResourcesToDownload(
   with app: Application, using definition: CacheRegionDefinition, options: ResourceFindOptions
 ) async throws -> RegionAssetInfo {
-  
+
   var resources: Set<RequestedAsset> = []
-  
+
   for style in definition.styles {
     // Get the cacheable resources from the style
     let jsonData = try await getJSONForStyle(with: app, style: style)
@@ -456,7 +456,7 @@ func findAll(
       toDownload.insert(asset)
     }
   }
-  
+
   return RegionAssetInfo(
     needed: assets,
     toDownload: toDownload,
