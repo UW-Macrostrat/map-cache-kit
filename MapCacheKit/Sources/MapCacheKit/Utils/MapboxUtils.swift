@@ -171,12 +171,12 @@ struct ResourceFindOptions {
   var maxCodePoint: Int = 65535 // Default to the maximum Unicode code point
 }
 
-func findResourcesRequestedByMapboxStyle(spec: StyleSpec, options: ResourceFindOptions = ResourceFindOptions()) throws -> Set<RequestedResource> {
-  var resources = Set<RequestedResource>()
+func findResourcesRequestedByMapboxStyle(spec: StyleSpec, options: ResourceFindOptions = ResourceFindOptions()) throws -> Set<RequestedAsset> {
+  var resources = Set<RequestedAsset>()
 
   // Find font stacks
   let fontStacks = try findFontStacksRequestedByMapboxStyle(spec: spec, maxCodePoint: options.maxCodePoint)
-  resources.formUnion(fontStacks.map { RequestedResource(urlTemplate: $0.urlTemplate, kind: .font) })
+  resources.formUnion(fontStacks.map { RequestedAsset(urlTemplate: $0.urlTemplate, type: .resource(.font)) })
 
   // Find sprites
   let sprites = try findSpritesRequestedByMapboxStyle(spec: spec)
@@ -275,8 +275,8 @@ func findFontStacksRequestedByMapboxStyle(spec: StyleSpec, maxCodePoint: Int = 6
   return fontStacks
 }
 
-func findSpritesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedResource> {
-  var sprites = Set<RequestedResource>()
+func findSpritesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedAsset> {
+  var sprites = Set<RequestedAsset>()
   guard let sprite = spec.sprite else {
     return sprites
   }
@@ -288,20 +288,20 @@ func findSpritesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedR
     let kindExt = kind == .sprite ? ".png" : ".json"
     for suffix in suffixes {
       let urlTemplate = sprite + suffix + kindExt
-      sprites.insert(RequestedResource(urlTemplate: urlTemplate, kind: kind))
+      sprites.insert(RequestedAsset(urlTemplate: urlTemplate, type: .resource(kind)))
     }
   }
   return sprites
 }
 
-func findSourcesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedResource> {
-  var sourceData: Set<RequestedResource> = []
+func findSourcesRequestedByMapboxStyle(spec: StyleSpec) throws -> Set<RequestedAsset> {
+  var sourceData: Set<RequestedAsset> = []
 
   for source in spec.sources.values {
     switch source.type {
     case .raster, .vector, .rasterDem, .geojson:
       if let url = source.url {
-        sourceData.insert(RequestedResource(urlTemplate: url, kind: .source))
+        sourceData.insert(RequestedAsset(urlTemplate: url, type: .resource(.source)))
       }
     default:
       break

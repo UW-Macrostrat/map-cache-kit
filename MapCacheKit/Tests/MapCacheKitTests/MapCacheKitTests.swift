@@ -222,10 +222,12 @@ struct MapCacheKitTests {
 
       var totalSize: Int64 = 0
 
-      let fontStackURLs = try getFontStackURLs(styleSpec, fontStacks: Array(fontStacks), ranges: ["0-255"])
+      let fontStackURLs = getFontStackURLs(styleSpec, fontStacks: Array(fontStacks), ranges: ["0-255"])
 
+      let db = try app.getDatabase()
       for url in fontStackURLs {
-        guard let existingAssetInfo = try await findResourceInDatabase(db: app.db, url: url, kind: .font) else {
+        let asset = RequestedAsset(urlTemplate: url, type: .resource(.font))
+        guard let existingAssetInfo = try await findResource(db, asset: asset) else {
           throw RuntimeError.invalidArgument("Font stack \(url) not found in database")
         }
 
@@ -255,16 +257,18 @@ struct MapCacheKitTests {
 
       #expect(resources.count > 10, "There should be at least ten resources requested by the style")
 
-      let fontStacks = resources.filter { $0.kind == .font }
+      let fontStacks = resources.filter { $0.isResource(type: .font) }
       #expect(fontStacks.count == 6, "There should be six font stacks in the style")
-      let spriteResources = resources.filter { $0.kind == .sprite || $0.kind == .spritejson }
+      let spriteResources = resources.filter { $0.isResource(type: .sprite) || $0.isResource(type: .spritejson) }
       #expect(spriteResources.count == 4, "There should be four sprite resources in the style")
-      let sourceResources = resources.filter { $0.kind == .source }
+      let sourceResources = resources.filter { $0.isResource(type: .source) }
       #expect(sourceResources.count == 3, "There should be three source resources in the style")
 
       var totalSize: Int64 = 0
+      
+      let db = try app.getDatabase()
       for resource in resources {
-        guard let existingAssetInfo = try await findResourceInDatabase(db: app.db, url: resource.urlTemplate, kind: resource.kind) else {
+        guard let existingAssetInfo = try await findResource(db, asset: resource) else {
           throw RuntimeError.invalidArgument("Resource \(resource.urlTemplate) not found in database")
         }
 

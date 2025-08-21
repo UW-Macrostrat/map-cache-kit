@@ -112,6 +112,13 @@ extension Application {
       task.cancel()
     }
   }
+  
+  func getDatabase() throws -> any SQLDatabase {
+    guard let db = self.db as? any SQLDatabase else {
+      throw RuntimeError.databaseError("Database is not an SQLDatabase")
+    }
+    return db
+  }
 }
 
 // configures your application
