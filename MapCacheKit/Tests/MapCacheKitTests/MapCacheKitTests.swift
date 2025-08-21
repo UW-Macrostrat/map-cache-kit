@@ -10,7 +10,7 @@ import Numerics
 
 fileprivate func withApp(cacheDatabase: SQLiteConfiguration, _ test: (Application) async throws -> Void) async throws {
   // Set an environment variable for an in-memory database for testing
-  var env = try Environment.detect()
+  let env = try Environment.detect()
 
   let app = try await Application.make(env)
 

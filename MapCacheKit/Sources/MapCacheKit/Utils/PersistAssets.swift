@@ -99,3 +99,23 @@ func insertLink(_ db: any SQLDatabase, regionID: Int, tileID: Int) async throws 
   """
   _ = try await db.raw(regionResourceInsert).run()
 }
+
+func compressionAlgorithm(for data: Data?) -> String? {
+  // Check for magic bytes for deflate compression
+  // NOTE: we may want to support other compression types in the future
+  guard let data = data else {
+    return nil
+  }
+  
+  if data.starts(with: [0x78, 0x9C]) {
+    return "deflate"
+  }
+  if data.starts(with: [0x1F, 0x8B]) {
+    return "gzip"
+  }
+  // zstd
+  if data.starts(with: [0x28, 0xb5, 0x2f, 0xfd]) {
+    return "zstd"
+  }
+  return nil
+}

@@ -56,12 +56,12 @@ enum RuntimeError: Error {
 
 // map-cache://regions/{id}/thumbnail
 
-struct RequestedAsset: Hashable, Equatable {
+public struct RequestedAsset: Hashable, Equatable, Sendable {
   let urlTemplate: String
   let type: AssetType
   
-  var thirdParty: Bool {
-    return !urlTemplate.hasPrefix("mapbox://")
+  var isMapboxAsset: Bool {
+    return urlTemplate.hasPrefix("mapbox://")
   }
   
   func resource() throws -> RequestedResource {
@@ -173,9 +173,6 @@ func downloadRegionAssets(
 
   // Get the assets to download
   let assets = try await getRegionAssets(with: app, using: definition, options: options)
-  guard let mapboxToken = try app.config.mapboxAPIToken else {
-    throw RuntimeError.configurationError("Mapbox API token is not configured")
-  }
 
   guard let db = app.db as? any SQLDatabase else {
     throw RuntimeError.databaseError("Database is not an SQLDatabase")
@@ -199,13 +196,9 @@ func downloadRegionAssets(
   let downloadTasks: [@Sendable () async throws -> DownloadResult] = requestedAssets.map { asset in
     return {
       try Task.checkCancellation()
-
-      var params = [String: String?]()
-      if !asset.thirdParty {
-        params = ["access_token": mapboxToken]
-      }
+      
+      let params = try app.config.methods.addParams(app: app, for: asset)
       let url = buildDownloadURL(for: asset, params: params)
-
       do {
         let data = try await getData(app, url: url)
         switch asset.type {
@@ -379,24 +372,12 @@ func getAndCacheThumbnail(
   if let data = resource?.data {
     return data
   }
-
   // get the thumbnail from the web
   let thumbnailURL = try buildCacheRegionThumbnailURL(app: app, geometry: region.getGeometry().geometry)
   app.logger.info("Downloading thumbnail from \(thumbnailURL)")
-  let res = try await downloadFile(with: app, url: thumbnailURL)
-  guard res.status == .ok,
-        let body = res.body,
-        body.readableBytes > 0
+  guard let data = try await getData(app, url: thumbnailURL),
+        getImageMimeType(data) == nil
   else {
-    throw RuntimeError.invalidArgument("Failed to download file from \(thumbnailURL)")
-  }
-  let data = Data(buffer: body)
-
-  if compressionAlgorithm(for: data) != nil {
-    throw RuntimeError.invalidArgument(
-      "Thumbnail data should not be compressed, but it is. This is unexpected behavior.")
-  }
-  if getImageMimeType(data) == nil {
     throw RuntimeError.invalidArgument("Downloaded thumbnail data is not a valid image")
   }
 
@@ -408,26 +389,6 @@ func getAndCacheThumbnail(
     regionID: regionID
   )
   return data
-}
-
-func compressionAlgorithm(for data: Data?) -> String? {
-  // Check for magic bytes for deflate compression
-  // NOTE: we may want to support other compression types in the future
-  guard let data = data else {
-    return nil
-  }
-
-  if data.starts(with: [0x78, 0x9C]) {
-    return "deflate"
-  }
-  if data.starts(with: [0x1F, 0x8B]) {
-    return "gzip"
-  }
-  // zstd
-  if data.starts(with: [0x28, 0xb5, 0x2f, 0xfd]) {
-    return "zstd"
-  }
-  return nil
 }
 
 func getRegionAssets(
@@ -618,20 +579,7 @@ func getJSONForStyle(
   }
 }
 
-enum SourceType: String, Codable {
-  case vector = "vector"
-  case raster = "raster"
-  case rasterDem = "raster-dem"
-  case geojson = "geojson"
-  case image = "image"
-  case video = "video"
-}
 
-struct CacheLayerDefinition: Hashable, Equatable {
-  let type: SourceType
-  // Cache key used to store tiles in the database
-  let urlTemplate: String
-}
 
 func getCacheableTileLayersFromStyle(
   with app: Application,
