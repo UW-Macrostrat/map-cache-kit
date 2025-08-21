@@ -491,12 +491,12 @@ func canonicalizeStyleURLForCaching() async throws {
 func downloadNoDataTile() async throws {
   try await withApp { app in
     let urlTemplate = "mapbox://tiles/mapbox.mapbox-streets-v8/{z}/{x}/{y}.vector.pbf"
-    let tile = CandidateTile(x: 8, y: 15, z: 4, urlTemplate: urlTemplate)
+    let tile = RequestedAsset(urlTemplate: urlTemplate, type: .tile(TileIndex(x: 8, y: 15, z: 4)))
     guard let mapboxToken = try app.config.mapboxAPIToken else {
       throw RuntimeError.invalidArgument("Mapbox API token not set in config")
     }
 
-    let uri = getDownloadURL(tile: tile, params: [
+    let uri = buildDownloadURL(for: tile, params: [
       "access_token": mapboxToken,
     ])
     let res = try await downloadFile(with: app, url: uri)

@@ -56,6 +56,34 @@ enum RuntimeError: Error {
 
 // map-cache://regions/{id}/thumbnail
 
+struct RequestedAsset: Hashable, Equatable {
+  let urlTemplate: String
+  let type: AssetType
+  
+  var thirdParty: Bool {
+    return !urlTemplate.hasPrefix("mapbox://")
+  }
+  
+  func resource() throws -> RequestedResource {
+    if case .resource(let kind) = self.type {
+      return .init(urlTemplate: self.urlTemplate, kind: kind)
+    }
+    throw RuntimeError.invalidArgument("Failed to unwrap resource")
+  }
+  
+  func tile() throws -> CandidateTile {
+    if case .tile(let tile) = self.type {
+      return .init(
+        x: tile.x,
+        y: tile.y,
+        z: tile.z,
+        urlTemplate: self.urlTemplate
+      )
+    }
+    throw RuntimeError.invalidArgument("Failed to unwrap tile")
+  }
+}
+
 struct RequestedResource: Hashable, Equatable {
   let urlTemplate: String
   let kind: ResourceKind
@@ -93,11 +121,6 @@ struct RegionResourceInfo {
 struct RegionAssetsPrepareStatus {
   let tiles: RegionTileInfo
   let resources: RegionResourceInfo
-}
-
-enum RequestedAsset {
-  case tile(CandidateTile)
-  case resource(RequestedResource)
 }
 
 enum DownloadStatus {
@@ -168,6 +191,7 @@ func downloadRegionAssets(
   var downloadTasks: [@Sendable () async throws -> DownloadResult] = []
   downloadTasks += assets.resources.resourcesToDownload.map { resource in
     let uri = URI(string: resource.urlTemplate)
+    let asset = RequestedAsset(urlTemplate: resource.urlTemplate, type: .resource(resource.kind))
     return {
       try Task.checkCancellation()
       do {
@@ -176,8 +200,9 @@ func downloadRegionAssets(
         if !resource.thirdParty {
           params = ["access_token": mapboxToken]
         }
+        
 
-        let uri = getDownloadURL(resource, params: params)
+        let uri = buildDownloadURL(for: asset, params: params)
 
         let res = try await downloadFile(with: app, url: uri)
         app.logger.info("Resource \(uri): \(res.status)")
@@ -197,12 +222,12 @@ func downloadRegionAssets(
           compressed: compressed, kind: resource.kind, regionID: regionID
         )
         return DownloadResult(
-          uri: uri, request: .resource(resource), result: .success(Int64(data.count))
+          uri: uri, request: asset, result: .success(Int64(data.count))
         )
 
       } catch {
         return DownloadResult(
-          uri: uri, request: .resource(resource), result: .failure(error)
+          uri: uri, request: asset, result: .failure(error)
         )
       }
     }
@@ -213,7 +238,13 @@ func downloadRegionAssets(
       params = ["access_token": mapboxToken]
     }
 
-    let uri = getDownloadURL(tile: tile, params: params)
+    let tileIx = TileIndex(x: tile.x, y: tile.y, z: tile.z)
+    
+    let asset = RequestedAsset(
+      urlTemplate: tile.urlTemplate,
+      type: .tile(tileIx)
+    )
+    let uri = buildDownloadURL(for: asset, params: params)
     return {
       try Task.checkCancellation()
       do {
@@ -245,12 +276,12 @@ func downloadRegionAssets(
         )
 
         return DownloadResult(
-          uri: uri, request: .tile(tile), result: .success(Int64(data?.count ?? 0))
+          uri: uri, request: asset, result: .success(Int64(data?.count ?? 0))
         )
       } catch {
         app.logger.error("Failed to download \(uri): \(error)")
         return DownloadResult(
-          uri: uri, request: .tile(tile), result: .failure(error)
+          uri: uri, request: asset, result: .failure(error)
         )
       }
     }
@@ -299,7 +330,7 @@ func downloadRegionAssets(
       var status: CacheDownloadStatus = .pending
       switch result.result {
       case .success(let dataSize):
-        switch result.request {
+        switch result.request.type {
         case .tile(_):
           downloadedTiles += 1
           downloadedTilesSize += dataSize
@@ -311,7 +342,7 @@ func downloadRegionAssets(
         status = .pending
       case .failure(let error):
         errorMessage = error.localizedDescription
-        switch result.request {
+        switch result.request.type {
         case .tile:
           failedTiles += 1
         case .resource:
