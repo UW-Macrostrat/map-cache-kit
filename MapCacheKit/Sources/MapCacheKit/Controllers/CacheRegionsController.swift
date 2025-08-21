@@ -35,6 +35,7 @@ struct CacheRegionsController: RouteCollection {
     regions.delete(":id", use: self.deleteCacheRegion)
     regions.get(":id", "thumbnail", use: self.getCacheRegionImage)
     regions.post("refresh", use: self.refreshAll)
+    regions.get("thumbnail", ":bbox", use: self.getThumbnailForBounds)
   }
 
   @Sendable
@@ -94,6 +95,47 @@ struct CacheRegionsController: RouteCollection {
       assets: total,
       maxNumberOfRegions: (try? req.application.config.maxNumberOfRegions) ?? 10
     )
+  }
+
+  @Sendable
+  func getThumbnailForBounds(req: Request) async throws -> Response {
+    guard let bboxString = req.parameters.get("bbox") else {
+      throw Abort(.badRequest, reason: "Missing bbox parameter")
+    }
+
+    // Parse the bbox parameter
+    let coords = bboxString.split(separator: ",").compactMap { Double($0) }
+    guard coords.count == 4 else {
+      throw Abort(.badRequest, reason: "Invalid bbox format, expected 4 coordinates")
+    }
+
+    let minX = coords[0]
+    let minY = coords[1]
+    let maxX = coords[2]
+    let maxY = coords[3]
+
+    guard minX >= -180.0, maxX <= 180.0,
+          minY >= -90.0, maxY <= 90.0 else {
+      throw Abort(.badRequest, reason: "Invalid bbox coordinates, values out of range for EPSG:4326")
+    }
+
+    guard minX < maxX, minY < maxY else {
+      throw Abort(.badRequest, reason: "Invalid bbox format, min values must be less than max values")
+    }
+
+    let bbox = Envelope(
+      minX: minX,
+      maxX: maxX,
+      minY: minY,
+      maxY: maxY
+    )
+
+    let uri = try buildCacheRegionThumbnailURL(
+      app: req.application,
+      geometry: bbox.geometry
+    )
+
+    return req.redirect(to: uri.string, redirectType: .temporary)
   }
 
   @Sendable
@@ -447,8 +489,8 @@ struct CacheCreationInfo: Content {
       geometry: geometry
     )
 
-    let now = Date().ISO8601Format()
-
+    let formatter = ISO8601DateFormatter()
+    let now = formatter.string(from: Date())
     let desc = MBXCacheRegionDescription(
       layers: layers,
       styleVersion: styleCacheVersion,

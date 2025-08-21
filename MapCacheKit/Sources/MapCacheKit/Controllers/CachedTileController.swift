@@ -84,12 +84,20 @@ struct CachedTileController: RouteCollection {
     // to the original URL
 
     // Add query parameters to URL
-    var url2 = url1
-    if !queryParams.isEmpty {
-      url2.append(queryItems: queryParams.map { (key, value) in URLQueryItem(name: key, value: value) })
+    let urlOut: URL
+    if queryParams.isEmpty {
+      urlOut = url1
+    } else {
+      guard var url2 = URLComponents(string: url1.absoluteString) else {
+        throw Abort(.badRequest, reason: "Could not decode URL")
+      }
+      url2.queryItems = (url2.queryItems ?? []) + queryParams.map { (key, value) in URLQueryItem(name: key, value: value) }
+      guard let url3 = url2.url else {
+        throw Abort(.badRequest, reason: "Could not decode URL")
+      }
+      urlOut = url3
     }
-
-    return req.redirect(to: url2.absoluteString, redirectType: .temporary)
+    return req.redirect(to: urlOut.absoluteString, redirectType: .temporary)
   }
 }
 

@@ -442,8 +442,8 @@ func getRegionAssets(
   app.logger
     .info("""
           Assets to download:
-          - \(resources.resourcesToDownload) resources
-          - \(tiles.tilesToDownload) tiles
+          - \(resources.resourcesToDownload.count) resources
+          - \(tiles.tilesToDownload.count) tiles
           """
     )
   return RegionAssetsPrepareStatus(tiles: tiles, resources: resources)
