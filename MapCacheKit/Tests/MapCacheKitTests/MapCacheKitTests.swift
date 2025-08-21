@@ -479,15 +479,12 @@ struct IntersectingTileTests {
 @Test("Canonicalize Mapbox style URL for caching")
 func canonicalizeStyleURLForCaching() async throws {
   let styleURL = "https://api.mapbox.com/styles/v1/mapbox/streets-v11"
-  let canonicalizedURL = getMapboxCanonicalURL(styleURL)
+  guard let canonicalizedURL = getMapboxCanonicalURL(styleURL) else {
+    throw RuntimeError.configurationError("Failed to canonicalize style URL")
+  }
   #expect(
     canonicalizedURL.templateURL == "mapbox://styles/mapbox/streets-v11"
   )
-}
-
-@Test("Get style URL for request")
-func getStyleURLForRequest() async throws {
-  let canonicalURL = "mapbox://tiles/mapbox.mapbox-streets-v8/{z}/{x}/{y}.vector.pbf"
 }
 
 @Test("Download tile that has no data")

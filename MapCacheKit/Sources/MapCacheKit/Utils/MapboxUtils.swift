@@ -8,24 +8,31 @@
 import Foundation
 import Vapor
 import GEOSwift
+import SwiftTileMatrix
 
-func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
+func getMapboxCanonicalURL(_ url: String) -> CacheResourceInfo? {
   var matchURL = url
 
   let stylePrefix = "https://api.mapbox.com/styles/v1/"
   if matchURL.starts(with: stylePrefix) {
     matchURL = matchURL.replacingOccurrences(of: stylePrefix, with: "")
+    var type: AssetType = .resource(.style)
     // We are dealing with a spriteJSON request
     // this is kind of a poor match, better to use a regex maybe
     // really we want to match strings that end with /sprite(@2x)?.(json|png)
     if matchURL.contains("/sprite") {
       matchURL = matchURL.replacingOccurrences(of: "/sprite", with: "")
       matchURL = "mapbox://sprites/" + matchURL
+      if matchURL.hasSuffix(".json") {
+        type = .resource(.spritejson)
+      } else {
+        type = .resource(.sprite)
+      }
     } else {
       // This is a style request
       matchURL = "mapbox://styles/" + matchURL
     }
-    return CacheResourceInfo(inputURL: url, templateURL: matchURL, cacheType: .resource, thirdParty: false)
+    return CacheResourceInfo(inputURL: url, templateURL: matchURL, type: type, thirdParty: false)
   }
 
   let fontsPrefix = "https://api.mapbox.com/fonts/v1/"
@@ -35,7 +42,7 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
     return CacheResourceInfo(
       inputURL: url,
       templateURL: matchURL.replacingOccurrences(of: fontsPrefix, with: "mapbox://fonts/"),
-      cacheType: .resource,
+      type: .resource(.font),
       thirdParty: false
     )
   }
@@ -47,7 +54,7 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
     return CacheResourceInfo(
       inputURL: url,
       templateURL: matchURL.replacingOccurrences(of: tilePrefix, with: "mapbox://"),
-      cacheType: .resource,
+      type: .resource(.source),
       thirdParty: false
     )
   }
@@ -68,7 +75,7 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
       matchURL = matchURL.replacingOccurrences(of: "@2x", with: "{ratio}")
     }
     // Replace values with templated string
-    var cacheType: CacheType? = nil
+    var cacheType: AssetType? = nil
     let range = NSRange(location: 0, length: matchURL.count)
     if let regex = try? NSRegularExpression(pattern: "/([0-9]+)/([0-9]+)/([0-9]+)"),
        let match = regex.firstMatch(in: matchURL, options: [], range: range) {
@@ -87,18 +94,12 @@ func getMapboxCanonicalURL(_ url: String)-> CacheResourceInfo {
       return CacheResourceInfo(
         inputURL: url,
         templateURL: matchURL,
-        cacheType: type,
+        type: type,
         thirdParty: thirdParty
       )
     }
   }
-
-  return CacheResourceInfo(
-    inputURL: url,
-    templateURL: url,
-    cacheType: .resource,
-    thirdParty: thirdParty
-  )
+  return nil
 }
 
 func getDownloadURL(tile: CandidateTile, params: [String: String?] = [:]) -> URI {
@@ -172,21 +173,27 @@ func buildParams(_ params: [String: String?]) -> String? {
 
 let imageExtensions = Set(["webp", "png", "jpg", "jpeg", "mvt", "pbf"])
 
-struct TileIndex {
+struct TileIndex: Hashable, Equatable, Sendable {
   let x: Int
   let y: Int
   let z: Int
+  
+  var tileCoord: TileCoord {
+    return TileCoord(x, y, z)
+  }
 }
 
-enum CacheType {
+
+
+enum AssetType: Hashable, Equatable {
   case tile(TileIndex)
-  case resource
+  case resource(ResourceKind)
 }
 
 struct CacheResourceInfo {
   let inputURL: String
   let templateURL: String
-  let cacheType: CacheType
+  let type: AssetType
   let thirdParty: Bool
 }
 
