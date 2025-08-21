@@ -170,10 +170,10 @@ struct MapCacheKitTests {
 
       let res = try await getTilesToDownload(with: app, using: definition)
 
-      #expect(res.tilesToDownload.count == 0)
-      #expect(res.tilesAlreadyDownloaded.count == 5)
+      #expect(res.toDownload.count == 0)
+      #expect(res.alreadyDownloaded.count == 5)
       // More than a 100 kb of tiles should be downloaded
-      #expect(Double(res.totalSizeOfTilesDownloaded) > 1e5)
+      #expect(Double(res.totalSizeDownloaded) > 1e5)
 
     }
   }
@@ -198,10 +198,10 @@ struct MapCacheKitTests {
 
       let res = try await getTilesToDownload(with: app, using: definition)
 
-      #expect(res.tilesToDownload.count == 0)
-      #expect(res.tilesAlreadyDownloaded.count == 13)
+      #expect(res.toDownload.count == 0)
+      #expect(res.alreadyDownloaded.count == 13)
       // More than a 100 kb of tiles should be downloaded
-      #expect(Double(res.totalSizeOfTilesDownloaded) > 1e5)
+      #expect(Double(res.totalSizeDownloaded) > 1e5)
 
     }
   }
@@ -217,17 +217,14 @@ struct MapCacheKitTests {
 
       // decode the style
       let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: Data(style.utf8))
-
       let fontStacks = findFontsRequestedByMapboxStyle(spec: styleSpec)
-
       var totalSize: Int64 = 0
-
       let fontStackURLs = getFontStackURLs(styleSpec, fontStacks: Array(fontStacks), ranges: ["0-255"])
 
       let db = try app.getDatabase()
       for url in fontStackURLs {
         let asset = RequestedAsset(urlTemplate: url, type: .resource(.font))
-        guard let existingAssetInfo = try await findResource(db, asset: asset) else {
+        guard let existingAssetInfo = try await find(asset: asset, in: db) else {
           throw RuntimeError.invalidArgument("Font stack \(url) not found in database")
         }
 
@@ -268,7 +265,7 @@ struct MapCacheKitTests {
       
       let db = try app.getDatabase()
       for resource in resources {
-        guard let existingAssetInfo = try await findResource(db, asset: resource) else {
+        guard let existingAssetInfo = try await find(asset: resource, in: db) else {
           throw RuntimeError.invalidArgument("Resource \(resource.urlTemplate) not found in database")
         }
 

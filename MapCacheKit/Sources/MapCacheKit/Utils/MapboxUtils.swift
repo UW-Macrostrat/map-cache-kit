@@ -250,7 +250,7 @@ func getFontStackURLs(_ styleSpec: StyleSpec, fontStacks: [String], ranges: [Str
   return fontStackURLs
 }
 
-func findFontStacksRequestedByMapboxStyle(spec: StyleSpec, maxCodePoint: Int = 65535) throws -> Set<RequestedResource> {
+func findFontStacksRequestedByMapboxStyle(spec: StyleSpec, maxCodePoint: Int = 65535) throws -> Set<RequestedAsset> {
 
   let fonts = Array(findFontsRequestedByMapboxStyle(spec: spec))
 
@@ -265,11 +265,11 @@ func findFontStacksRequestedByMapboxStyle(spec: StyleSpec, maxCodePoint: Int = 6
     ranges.append("\(start)-\(start + 255)")
   }
 
-  var fontStacks = Set<RequestedResource>()
+  var fontStacks = Set<RequestedAsset>()
   let fontStackURLs = getFontStackURLs(spec, fontStacks: fonts, ranges: ranges)
 
   for url in fontStackURLs {
-    fontStacks.insert(RequestedResource(urlTemplate: url, kind: .font))
+    fontStacks.insert(RequestedAsset(urlTemplate: url, type: .resource(.font)))
   }
 
   return fontStacks

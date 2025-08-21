@@ -64,25 +64,6 @@ public struct RequestedAsset: Hashable, Equatable, Sendable {
     return urlTemplate.hasPrefix("mapbox://")
   }
   
-  func resource() throws -> RequestedResource {
-    if case .resource(let kind) = self.type {
-      return .init(urlTemplate: self.urlTemplate, kind: kind)
-    }
-    throw RuntimeError.invalidArgument("Failed to unwrap resource")
-  }
-  
-  func tile() throws -> CandidateTile {
-    if case .tile(let tile) = self.type {
-      return .init(
-        x: tile.x,
-        y: tile.y,
-        z: tile.z,
-        urlTemplate: self.urlTemplate
-      )
-    }
-    throw RuntimeError.invalidArgument("Failed to unwrap tile")
-  }
-  
   func isResource(type: ResourceKind) -> Bool {
     if case .resource(let kind) = self.type {
       return kind == type
@@ -98,43 +79,16 @@ public struct RequestedAsset: Hashable, Equatable, Sendable {
   }
 }
 
-struct RequestedResource: Hashable, Equatable {
-  let urlTemplate: String
-  let kind: ResourceKind
-
-  var thirdParty: Bool {
-    return !urlTemplate.hasPrefix("mapbox://")
-  }
+internal struct RegionAssetInfo {
+  let needed: Set<RequestedAsset>
+  let toDownload: Set<RequestedAsset>
+  let alreadyDownloaded: Set<Int>
+  let totalSizeDownloaded: Int64
 }
 
-struct CandidateTile: Hashable, Equatable {
-  let x: Int
-  let y: Int
-  let z: Int
-  let urlTemplate: String
-
-  var thirdParty: Bool {
-    return !urlTemplate.hasPrefix("mapbox://")
-  }
-}
-
-struct RegionTileInfo {
-  let neededTiles: Set<RequestedAsset>
-  let tilesToDownload: Set<RequestedAsset>
-  let tilesAlreadyDownloaded: Set<Int>
-  let totalSizeOfTilesDownloaded: Int64
-}
-
-struct RegionResourceInfo {
-  let neededResources: Set<RequestedAsset>
-  let resourcesToDownload: Set<RequestedAsset>
-  let resourcesAlreadyDownloaded: Set<Int>
-  let totalSizeOfResourcesDownloaded: Int64
-}
-
-struct RegionAssetsPrepareStatus {
-  let tiles: RegionTileInfo
-  let resources: RegionResourceInfo
+internal struct RegionAssetsPrepareStatus {
+  let tiles: RegionAssetInfo
+  let resources: RegionAssetInfo
 }
 
 enum DownloadStatus {
@@ -189,14 +143,14 @@ func downloadRegionAssets(
   let assets = try await getRegionAssets(with: app, using: definition, options: options)
   let db = try app.getDatabase()
 
-  for tile in assets.tiles.tilesAlreadyDownloaded {
+  for tile in assets.tiles.alreadyDownloaded {
     try await insertLink(db, regionID: regionID, tileID: tile)
   }
-  for resource in assets.resources.resourcesAlreadyDownloaded {
+  for resource in assets.resources.alreadyDownloaded {
     try await insertLink(db, regionID: regionID, resourceID: resource)
   }
   
-  let requestedAssets: Set<RequestedAsset> = assets.resources.resourcesToDownload.union(assets.tiles.tilesToDownload)
+  let requestedAssets: Set<RequestedAsset> = assets.resources.toDownload.union(assets.tiles.toDownload)
 
   let downloadTasks: [@Sendable () async throws -> DownloadResult] = requestedAssets.map { asset in
     return {
@@ -241,22 +195,22 @@ func downloadRegionAssets(
   var downloadedTiles = 0
   var downloadedTilesSize: Int64 = 0
   var failedTiles = 0
-  let totalTiles = assets.tiles.tilesToDownload.count
+  let totalTiles = assets.tiles.toDownload.count
   // Download resources
   var downloadedResources = 0
   var downloadedResourcesSize: Int64 = 0
   var failedResources = 0
-  let totalResources = assets.resources.resourcesToDownload.count
+  let totalResources = assets.resources.toDownload.count
 
   let initialProgress = CacheRegionProgress(
     regionID: regionID,
     resourcesDownloaded: 0,
-    resourcesInitiallyDownloaded: assets.resources.resourcesAlreadyDownloaded.count,
+    resourcesInitiallyDownloaded: assets.resources.alreadyDownloaded.count,
     resourcesFailed: 0,
     resourcesTotal: totalResources,
     resourcesDownloadedSize: 0,
     tilesDownloaded: 0,
-    tilesInitiallyDownloaded: assets.tiles.tilesAlreadyDownloaded.count,
+    tilesInitiallyDownloaded: assets.tiles.alreadyDownloaded.count,
     tilesTotal: totalTiles,
     tilesFailed: 0,
     tilesDownloadedSize: 0,
@@ -309,12 +263,12 @@ func downloadRegionAssets(
       let val  = CacheRegionProgress(
         regionID: regionID,
         resourcesDownloaded: downloadedResources,
-        resourcesInitiallyDownloaded: assets.resources.resourcesAlreadyDownloaded.count,
+        resourcesInitiallyDownloaded: assets.resources.alreadyDownloaded.count,
         resourcesFailed: failedResources,
         resourcesTotal: totalResources,
         resourcesDownloadedSize: downloadedResourcesSize,
         tilesDownloaded: downloadedTiles,
-        tilesInitiallyDownloaded: assets.tiles.tilesAlreadyDownloaded.count,
+        tilesInitiallyDownloaded: assets.tiles.alreadyDownloaded.count,
         tilesTotal: totalTiles,
         tilesFailed: failedTiles,
         tilesDownloadedSize: downloadedTilesSize,
@@ -404,15 +358,15 @@ func getRegionAssets(
   app.logger
     .info("""
           Assets to download:
-          - \(resources.resourcesToDownload.count) resources
-          - \(tiles.tilesToDownload.count) tiles
+          - \(resources.toDownload.count) resources
+          - \(tiles.toDownload.count) tiles
           """
     )
   return RegionAssetsPrepareStatus(tiles: tiles, resources: resources)
 }
 
 func getTilesToDownload(with app: Application, using definition: CacheRegionDefinition) async throws
-  -> RegionTileInfo
+  -> RegionAssetInfo
 {
   // Convert the geometry to a GEOSwift Polygon
   let polygon = definition.geometry
@@ -448,46 +402,8 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
     }
   }
 
-  guard let db = app.db as? any SQLDatabase else {
-    throw RuntimeError.databaseError("Database is not an SQLDatabase")
-  }
-
-  var tilesToDownload: Set<RequestedAsset> = []
-  var tilesAlreadyDownloaded: Set<Int> = []
-  var totalSizeOfTilesDownloaded: Int64 = 0
-
-  // already downloaded tiles
-  // need to get ID of tiles...
-  for asset in candidateTiles {
-    guard case .tile(let tile) = asset.type else {
-      continue
-    }
-    let sql: SQLQueryString = """
-      SELECT
-        id,
-        coalesce(length(data), 0) size
-      FROM tiles
-      WHERE x = \(bind: tile.x)
-        AND y = \(bind: tile.y)
-        AND z = \(bind: tile.z)
-        AND url_template = \(bind: asset.urlTemplate)
-      LIMIT 1
-      """
-    if let tile = try await db.raw(sql).first(decoding: ExistingAssetInfo.self) {
-      totalSizeOfTilesDownloaded += tile.size
-      tilesAlreadyDownloaded.insert(tile.id)
-    } else {
-      // If the tile is not in the database, we need to download it
-      tilesToDownload.insert(asset)
-    }
-  }
-
-  return RegionTileInfo(
-    neededTiles: candidateTiles,
-    tilesToDownload: tilesToDownload,
-    tilesAlreadyDownloaded: tilesAlreadyDownloaded,
-    totalSizeOfTilesDownloaded: totalSizeOfTilesDownloaded
-  )
+  let db = try app.getDatabase()
+  return try await findAll(assets: candidateTiles, in: db)
 }
 
 struct ExistingAssetInfo: Content {
@@ -497,13 +413,9 @@ struct ExistingAssetInfo: Content {
 
 func getResourcesToDownload(
   with app: Application, using definition: CacheRegionDefinition, options: ResourceFindOptions
-) async throws -> RegionResourceInfo {
+) async throws -> RegionAssetInfo {
   
   var resources: Set<RequestedAsset> = []
-  // Check which resources are already downloaded
-  var resourcesToDownload: Set<RequestedAsset> = []
-  var resourcesAlreadyDownloaded: Set<Int> = []
-  var totalSizeOfResourcesDownloaded: Int64 = 0
   
   for style in definition.styles {
     // Get the cacheable resources from the style
@@ -514,44 +426,52 @@ func getResourcesToDownload(
     let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: data)
 
     // Could limit the maximum code point here...
-    let r1 = try findResourcesRequestedByMapboxStyle(
+    let styleResources = try findResourcesRequestedByMapboxStyle(
       spec: styleSpec,
       options: options
     )
 
-    resources.formUnion(r1)
+    resources.formUnion(styleResources)
   }
 
   let db = try app.getDatabase()
+  return try await findAll(assets: resources, in: db)
+}
 
-  for resource in resources {
+func findAll(
+  assets: Set<RequestedAsset>,
+  in db: any SQLDatabase
+) async throws -> RegionAssetInfo {
+  var toDownload: Set<RequestedAsset> = []
+  var alreadyDownloaded: Set<Int> = []
+  var totalSizeDownloaded: Int64 = 0
+  for asset in assets {
     // Check if the resource is already in the database
-    if let resource = try await findResource(db, asset: resource) {
+    if let asset = try await find(asset: asset, in: db) {
       // Resource already exists
-      totalSizeOfResourcesDownloaded += resource.size
-      resourcesAlreadyDownloaded.insert(resource.id)
+      totalSizeDownloaded += asset.size
+      alreadyDownloaded.insert(asset.id)
     } else {
       // Resource needs to be downloaded
-      resourcesToDownload.insert(resource)
+      toDownload.insert(asset)
     }
   }
-
-  return RegionResourceInfo(
-    neededResources: resources,
-    resourcesToDownload: resourcesToDownload,
-    resourcesAlreadyDownloaded: resourcesAlreadyDownloaded,
-    totalSizeOfResourcesDownloaded: totalSizeOfResourcesDownloaded
+  
+  return RegionAssetInfo(
+    needed: assets,
+    toDownload: toDownload,
+    alreadyDownloaded: alreadyDownloaded,
+    totalSizeDownloaded: totalSizeDownloaded
   )
 }
 
-func findResource(
-  _ db: any SQLDatabase, asset: RequestedAsset
+func find(
+  asset: RequestedAsset, in db: any SQLDatabase
 ) async throws -> ExistingAssetInfo? {
-  guard case .resource(let kind) = asset.type else {
-    throw RuntimeError.invalidArgument("Asset is not a resource")
-  }
-  
-  let sql: SQLQueryString = """
+  let sql: SQLQueryString
+  switch asset.type {
+  case .resource(let kind):
+    sql = """
     SELECT
       id,
       length(data) as size
@@ -560,11 +480,20 @@ func findResource(
       AND kind = \(bind: kind.rawValue)
     LIMIT 1
     """
-
-  if let row = try await db.raw(sql).first(decoding: ExistingAssetInfo.self) {
-    return row
+  case .tile(let tile):
+    sql = """
+      SELECT
+        id,
+        coalesce(length(data), 0) size
+      FROM tiles
+      WHERE x = \(bind: tile.x)
+        AND y = \(bind: tile.y)
+        AND z = \(bind: tile.z)
+        AND url_template = \(bind: asset.urlTemplate)
+      LIMIT 1
+      """
   }
-  return nil
+  return try await db.raw(sql).first(decoding: ExistingAssetInfo.self)
 }
 
 func getJSONForStyle(

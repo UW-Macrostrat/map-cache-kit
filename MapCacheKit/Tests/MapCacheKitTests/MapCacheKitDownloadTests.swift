@@ -67,13 +67,13 @@ struct MapCacheKitDownloadTests {
         options: ResourceFindOptions(maxCodePoint: 255)
       )
 
-      #expect(regionInfo.tiles.tilesAlreadyDownloaded.count == 13, "There should be 18 tiles already downloaded for the region")
-      #expect(regionInfo.tiles.tilesToDownload.isEmpty, "There should be no tiles to download for the region")
-      #expect(Double(regionInfo.tiles.totalSizeOfTilesDownloaded) > 3e5, "Total size of tiles should be greater than 300 kb")
+      #expect(regionInfo.tiles.alreadyDownloaded.count == 13, "There should be 18 tiles already downloaded for the region")
+      #expect(regionInfo.tiles.toDownload.isEmpty, "There should be no tiles to download for the region")
+      #expect(Double(regionInfo.tiles.totalSizeDownloaded) > 3e5, "Total size of tiles should be greater than 300 kb")
 
-      #expect(regionInfo.resources.resourcesAlreadyDownloaded.count == 13, "There should be 15 resources already downloaded for the region")
-      #expect(regionInfo.resources.resourcesToDownload.isEmpty, "There should be no resources to download for the region")
-      #expect(Double(regionInfo.resources.totalSizeOfResourcesDownloaded) > 4e5, "Total size of resources should be greater than 400 kb")
+      #expect(regionInfo.resources.alreadyDownloaded.count == 13, "There should be 15 resources already downloaded for the region")
+      #expect(regionInfo.resources.toDownload.isEmpty, "There should be no resources to download for the region")
+      #expect(Double(regionInfo.resources.totalSizeDownloaded) > 4e5, "Total size of resources should be greater than 400 kb")
     }
   }
 
@@ -97,12 +97,12 @@ struct MapCacheKitDownloadTests {
       // Get the assets for the new region
       let regionInfo = try await getRegionAssets(with: app, using: def, options: ResourceFindOptions(maxCodePoint: 255))
 
-      #expect(regionInfo.tiles.tilesAlreadyDownloaded.count == 7, "There should be 13 tiles already downloaded for the region")
-      #expect(regionInfo.tiles.tilesToDownload.count == 6, "There should be 5 tiles to download for the region")
-      #expect(Double(regionInfo.tiles.totalSizeOfTilesDownloaded) > 2e5, "Total size of tiles should be greater than 300 kb")
+      #expect(regionInfo.tiles.alreadyDownloaded.count == 7, "There should be 13 tiles already downloaded for the region")
+      #expect(regionInfo.tiles.toDownload.count == 6, "There should be 5 tiles to download for the region")
+      #expect(Double(regionInfo.tiles.totalSizeDownloaded) > 2e5, "Total size of tiles should be greater than 300 kb")
 
-      #expect(regionInfo.resources.resourcesAlreadyDownloaded.count == 13, "There should be 13 resources already downloaded for the region")
-      #expect(regionInfo.resources.resourcesToDownload.isEmpty, "There should be no resources to download for the region")
+      #expect(regionInfo.resources.alreadyDownloaded.count == 13, "There should be 13 resources already downloaded for the region")
+      #expect(regionInfo.resources.toDownload.isEmpty, "There should be no resources to download for the region")
     }
   }
 }
@@ -128,12 +128,12 @@ func downloadNewTilesForCacheRegion() async throws {
 
     let regionInfo = try await getRegionAssets(with: app, using: def, options: ResourceFindOptions(maxCodePoint: 255))
 
-    #expect(regionInfo.tiles.tilesAlreadyDownloaded.isEmpty, "There should be no tiles already downloaded for the region")
-    #expect(regionInfo.tiles.tilesToDownload.count == 13, "There should be 13 tiles to download for the region")
+    #expect(regionInfo.tiles.alreadyDownloaded.isEmpty, "There should be no tiles already downloaded for the region")
+    #expect(regionInfo.tiles.toDownload.count == 13, "There should be 13 tiles to download for the region")
 
-    #expect(regionInfo.resources.resourcesAlreadyDownloaded.isEmpty, "There should be no resources already downloaded for the region")
-    #expect(regionInfo.resources.resourcesToDownload.count == 13, "There should be 13 resources to download for the region")
-    #expect(Double(regionInfo.resources.totalSizeOfResourcesDownloaded) == 0, "Total size of resources should be greater than 400 kb")
+    #expect(regionInfo.resources.alreadyDownloaded.isEmpty, "There should be no resources already downloaded for the region")
+    #expect(regionInfo.resources.toDownload.count == 13, "There should be 13 resources to download for the region")
+    #expect(Double(regionInfo.resources.totalSizeDownloaded) == 0, "Total size of resources should be greater than 400 kb")
 
     guard let db = app.db as? any SQLDatabase else {
       throw RuntimeError.invalidArgument("Database is not SQLDatabase")
