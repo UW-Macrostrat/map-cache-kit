@@ -13,24 +13,24 @@ func persistTile(
 ) async throws {
   try Task.checkCancellation() // Check if the task has been cancelled
   // Cast to SQLDatabase
-  
+
   // Vector tiles get a pixel ratio of 1
   var ratio = 1
   if urlTemplate.contains("{ratio}") {
     // If the tile URL template contains a pixel ratio, we can use that
     ratio = pixelRatio
   }
-  
+
   var data1: ByteBuffer? = nil
   if let data {
     // Convert Data to ByteBuffer
     data1 = ByteBuffer(data: data)
   }
-  
+
   //TODO: add unique constraints
-  
+
   let compressed = compressionAlgorithm(for: data) != nil
-  
+
   let tileInsert: SQLQueryString = """
     INSERT INTO tiles (x, y, z, url_template, pixel_ratio, data, compressed, accessed)
     VALUES (
@@ -43,15 +43,19 @@ func persistTile(
       \(bind: compressed ? 1 : 0),
       \(bind: Date().timeIntervalSince1970)
     )
+    ON CONFLICT (x, y, z, url_template, pixel_ratio) DO UPDATE SET
+      data = excluded.data,
+      compressed = excluded.compressed,
+      accessed = excluded.accessed
     RETURNING id
   """
-  
+
   guard let id = try await db.raw(tileInsert)
     .first(decodingColumn: "id", as: Int.self)
   else {
     throw RuntimeError.databaseError("Failed to insert or update tile")
   }
-  
+
   try await insertLink(db, regionID: regionID, tileID: id)
 }
 
@@ -60,7 +64,7 @@ func persistResource(
 ) async throws {
   let compressed = compressionAlgorithm(for: data) != nil
   let data1 = ByteBuffer(data: data)
-  
+
   let resourceInsert: SQLQueryString = """
     INSERT INTO resources (url, data, compressed, kind, accessed)
     VALUES (
@@ -70,9 +74,14 @@ func persistResource(
       \(bind: kind.rawValue),
       \(bind: Date().timeIntervalSince1970)
     )
+    ON CONFLICT (url) DO UPDATE SET
+      data = excluded.data,
+      compressed = excluded.compressed,
+      kind = excluded.kind,
+      accessed = excluded.accessed
     RETURNING id
   """
-  
+
   guard let id = try await db.raw(resourceInsert)
     .first(decodingColumn: "id", as: Int.self)
   else {
@@ -106,7 +115,7 @@ func compressionAlgorithm(for data: Data?) -> String? {
   guard let data = data else {
     return nil
   }
-  
+
   if data.starts(with: [0x78, 0x9C]) {
     return "deflate"
   }

@@ -4,7 +4,7 @@ import type {
   MapCacheListing,
   ResourceInfo,
 } from "./types";
-import { CacheMap, StaticCacheMap } from "./cache-map";
+import { StaticCacheMap } from "./cache-map";
 import { memo } from "react";
 import { findGlobalCache, isGlobalCache, isStyleCache } from "./utils";
 import {
@@ -191,7 +191,6 @@ function NewCacheForm() {
   ]);
 }
 
-const _Map = memo(CacheMap);
 
 function CacheItem({ cache }: { cache: MapCacheListing }) {
   const downloadStatus = useDownloadProgress(cache.id);
