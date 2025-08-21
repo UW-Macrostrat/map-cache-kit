@@ -187,102 +187,100 @@ func downloadRegionAssets(
   for resource in assets.resources.resourcesAlreadyDownloaded {
     try await insertLink(db, regionID: regionID, resourceID: resource)
   }
+  
+  var requestedAssets: [RequestedAsset] = []
+  requestedAssets += assets.resources.resourcesToDownload.map { res in
+    RequestedAsset(urlTemplate: res.urlTemplate, type: .resource(res.kind))
+  }
+  requestedAssets += assets.tiles.tilesToDownload.map { tile in
+    RequestedAsset(urlTemplate: tile.urlTemplate, type: .tile(.init(x: tile.x, y: tile.y, z: tile.z)))
+  }
 
-  var downloadTasks: [@Sendable () async throws -> DownloadResult] = []
-  downloadTasks += assets.resources.resourcesToDownload.map { resource in
-    let uri = URI(string: resource.urlTemplate)
-    let asset = RequestedAsset(urlTemplate: resource.urlTemplate, type: .resource(resource.kind))
+  let downloadTasks: [@Sendable () async throws -> DownloadResult] = requestedAssets.map { asset in
     return {
       try Task.checkCancellation()
-      do {
-        var params = [String: String]()
-
-        if !resource.thirdParty {
+      switch asset.type {
+      case .resource(let kind):
+        let uri = URI(string: asset.urlTemplate)
+        do {
+          var params = [String: String]()
+          
+          if !asset.thirdParty {
+            params = ["access_token": mapboxToken]
+          }
+          
+          let uri = buildDownloadURL(for: asset, params: params)
+          
+          let res = try await downloadFile(with: app, url: uri)
+          app.logger.info("Resource \(uri): \(res.status)")
+          
+          guard res.status == .ok,
+                let body = res.body,
+                body.readableBytes > 0
+          else {
+            throw RuntimeError.invalidArgument("Failed to download file from \(uri)")
+          }
+          let data = Data(buffer: body)
+          
+          let compressed = compressionAlgorithm(for: data) != nil
+          
+          try await persistResource(
+            to: db, url: asset.urlTemplate, data: data,
+            compressed: compressed, kind: kind, regionID: regionID
+          )
+          return DownloadResult(
+            uri: uri, request: asset, result: .success(Int64(data.count))
+          )
+          
+        } catch {
+          return DownloadResult(
+            uri: uri, request: asset, result: .failure(error)
+          )
+        }
+      case .tile(let tileIx):
+        var params: [String: String] = [:]
+        if !asset.thirdParty {
           params = ["access_token": mapboxToken]
         }
-        
-
         let uri = buildDownloadURL(for: asset, params: params)
-
-        let res = try await downloadFile(with: app, url: uri)
-        app.logger.info("Resource \(uri): \(res.status)")
-
-        guard res.status == .ok,
-              let body = res.body,
-              body.readableBytes > 0
-        else {
-          throw RuntimeError.invalidArgument("Failed to download file from \(uri)")
-        }
-        let data = Data(buffer: body)
-
-        let compressed = compressionAlgorithm(for: data) != nil
-
-        try await persistResource(
-          to: db, url: resource.urlTemplate, data: data,
-          compressed: compressed, kind: resource.kind, regionID: regionID
-        )
-        return DownloadResult(
-          uri: uri, request: asset, result: .success(Int64(data.count))
-        )
-
-      } catch {
-        return DownloadResult(
-          uri: uri, request: asset, result: .failure(error)
-        )
-      }
-    }
-  }
-  downloadTasks += assets.tiles.tilesToDownload.map { tile in
-    var params: [String: String] = [:]
-    if !tile.thirdParty {
-      params = ["access_token": mapboxToken]
-    }
-
-    let tileIx = TileIndex(x: tile.x, y: tile.y, z: tile.z)
-    
-    let asset = RequestedAsset(
-      urlTemplate: tile.urlTemplate,
-      type: .tile(tileIx)
-    )
-    let uri = buildDownloadURL(for: asset, params: params)
-    return {
-      try Task.checkCancellation()
-      do {
-        let res = try await downloadFile(with: app, url: uri)
-        app.logger.debug("Tile \(uri): \(res.status)")
-
-        var data: Data? = nil
-        switch res.status {
-        case .noContent, .notFound:
-          data = nil
-        case .ok:
-          if let body = res.body, body.readableBytes > 0 {
-            data = Data(buffer: body)
+        do {
+          let res = try await downloadFile(with: app, url: uri)
+          app.logger.debug("Tile \(uri): \(res.status)")
+          
+          var data: Data? = nil
+          switch res.status {
+          case .noContent, .notFound:
+            data = nil
+          case .ok:
+            if let body = res.body, body.readableBytes > 0 {
+              data = Data(buffer: body)
+            }
+          default:
+            throw RuntimeError.invalidArgument("Unexpected status code \(res.status) for \(uri)")
           }
-        default:
-          throw RuntimeError.invalidArgument("Unexpected status code \(res.status) for \(uri)")
+          
+          let compressed = compressionAlgorithm(for: data) != nil
+          
+          try await persistTile(
+            to: db,
+            urlTemplate: asset.urlTemplate,
+            tile: tileIx,
+            data: data,
+            // TODO: be more intelligent about compression
+            compressed: compressed,
+            regionID: regionID,
+            pixelRatio: definition.pixelRatio
+          )
+          
+          return DownloadResult(
+            uri: uri, request: asset, result: .success(Int64(data?.count ?? 0))
+          )
+        } catch {
+          app.logger.error("Failed to download \(uri): \(error)")
+          return DownloadResult(
+            uri: uri, request: asset, result: .failure(error)
+          )
         }
-
-        let compressed = compressionAlgorithm(for: data) != nil
-
-        try await persistTile(
-          to: db,
-          tile: tile,
-          data: data,
-          // TODO: be more intelligent about compression
-          compressed: compressed,
-          regionID: regionID,
-          pixelRatio: definition.pixelRatio
-        )
-
-        return DownloadResult(
-          uri: uri, request: asset, result: .success(Int64(data?.count ?? 0))
-        )
-      } catch {
-        app.logger.error("Failed to download \(uri): \(error)")
-        return DownloadResult(
-          uri: uri, request: asset, result: .failure(error)
-        )
       }
     }
   }
@@ -735,97 +733,6 @@ func inferTileURLTemplate(from tileJSONURL: String, sourceType: SourceType) thro
       "\(sourceType) sources are not supported for tileJSON inference")
   }
 }
-
-func persistTile(
-  to db: any SQLDatabase, tile: CandidateTile, data: Data?, compressed: Bool, regionID: Int, pixelRatio: Int = 1
-) async throws {
-  try Task.checkCancellation() // Check if the task has been cancelled
-  // Cast to SQLDatabase
-
-  // Vector tiles get a pixel ratio of 1
-  var ratio = 1
-  if tile.urlTemplate.contains("{ratio}") {
-    // If the tile URL template contains a pixel ratio, we can use that
-    ratio = pixelRatio
-  }
-
-  var data1: ByteBuffer? = nil
-  if let data {
-    // Convert Data to ByteBuffer
-    data1 = ByteBuffer(data: data)
-  }
-
-  //TODO: add unique constraints
-
-
-  let tileInsert: SQLQueryString = """
-    INSERT INTO tiles (x, y, z, url_template, pixel_ratio, data, compressed, accessed)
-    VALUES (
-      \(bind: tile.x),
-      \(bind: tile.y),
-      \(bind: tile.z),
-      \(bind: tile.urlTemplate),
-      \(bind: ratio),
-      \(bind: data1),
-      \(bind: compressed ? 1 : 0),
-      \(bind: Date().timeIntervalSince1970)
-    )
-    RETURNING id
-  """
-
-  guard let id = try await db.raw(tileInsert)
-    .first(decodingColumn: "id", as: Int.self)
-          else {
-    throw RuntimeError.databaseError("Failed to insert or update tile")
-  }
-
-  try await insertLink(db, regionID: regionID, tileID: id)
-}
-
-func persistResource(
-  to db: any SQLDatabase, url: String, data: Data, compressed: Bool, kind: ResourceKind, regionID: Int
-) async throws {
-  let data1 = ByteBuffer(data: data)
-
-  let resourceInsert: SQLQueryString = """
-    INSERT INTO resources (url, data, compressed, kind, accessed)
-    VALUES (
-      \(bind: url),
-      \(bind: data1),
-      \(bind: compressed ? 1 : 0),
-      \(bind: kind.rawValue),
-      \(bind: Date().timeIntervalSince1970)
-    )
-    RETURNING id
-  """
-
-  guard let id = try await db.raw(resourceInsert)
-    .first(decodingColumn: "id", as: Int.self)
-          else {
-    throw RuntimeError.databaseError("Failed to insert resource into database")
-  }
-  // Now insert into region_resources
-  try await insertLink(db, regionID: regionID, resourceID: id)
-}
-
-func insertLink(_ db: any SQLDatabase, regionID: Int, resourceID: Int) async throws {
-  let regionResourceInsert: SQLQueryString = """
-    INSERT INTO region_resources (region_id, resource_id)
-    VALUES (\(bind: regionID), \(bind: resourceID))
-    ON CONFLICT (region_id, resource_id) DO NOTHING
-  """
-  _ = try await db.raw(regionResourceInsert).run()
-}
-
-func insertLink(_ db: any SQLDatabase, regionID: Int, tileID: Int) async throws {
-  let regionResourceInsert: SQLQueryString = """
-    INSERT INTO region_tiles (region_id, tile_id)
-    VALUES (\(bind: regionID), \(bind: tileID))
-    ON CONFLICT (region_id, tile_id) DO NOTHING
-  """
-  _ = try await db.raw(regionResourceInsert).run()
-}
-
 
 extension TileCoord {
   var envelopeGeographic: Envelope {
