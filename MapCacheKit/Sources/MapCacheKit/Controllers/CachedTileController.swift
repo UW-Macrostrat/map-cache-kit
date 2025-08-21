@@ -208,7 +208,7 @@ let ctypeIndex = [
   "geojson": "application/json",
 ]
 
-enum ResourceKind: Int {
+public enum ResourceKind: Int, Sendable {
   // Mapbox resource types
   case style = 1
   case source = 2

@@ -57,10 +57,10 @@ enum RuntimeError: Error {
 // map-cache://regions/{id}/thumbnail
 
 public struct RequestedAsset: Hashable, Equatable, Sendable {
-  let urlTemplate: String
-  let type: AssetType
+  public let urlTemplate: String
+  public let type: AssetType
   
-  var isMapboxAsset: Bool {
+  public var isMapboxAsset: Bool {
     return urlTemplate.hasPrefix("mapbox://")
   }
   

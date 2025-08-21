@@ -5,8 +5,8 @@ import Vapor
 import NIOCore
 
 public struct AppConfig: Sendable {
-  let mapboxAPIToken: String?
-  let staticMapStyle: String
+  public let mapboxAPIToken: String?
+  public let staticMapStyle: String
   let maxConcurrentHTTPConnections: Int
   // Time between http requests during cache downloading
   let httpRequestTimeout: TimeAmount
@@ -70,7 +70,7 @@ struct ConcurrentDownloadManagerKey: StorageKey {
 
 extension Application {
 
-  var config: AppConfig {
+  public var config: AppConfig {
     get throws {
       guard let res = self.storage.get(ConfigurationKey.self) else {
         throw RuntimeError.configurationError("AppConfig not set in application storage")
