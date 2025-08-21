@@ -1,7 +1,7 @@
 {
   "configurations" : [
     {
-      "id" : "044CD8AE-C32D-4277-89F6-2F0F8D842C1A",
+      "id" : "BCFA4AEE-6AAA-4440-AE03-017F641C0502",
       "name" : "Test Scheme Action",
       "options" : {
 
@@ -12,8 +12,8 @@
     "codeCoverage" : false,
     "targetForVariableExpansion" : {
       "containerPath" : "container:",
-      "identifier" : "MapCacheKit",
-      "name" : "MapCacheKit"
+      "identifier" : "map-cache",
+      "name" : "map-cache"
     }
   },
   "testTargets" : [

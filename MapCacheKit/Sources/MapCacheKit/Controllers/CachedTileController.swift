@@ -134,11 +134,15 @@ func getCachedResource(from db: any SQLDatabase, url: URL, forceDownscale: Bool 
   //      matchURL = matchURL.replacingOccurrences(of: "@2x", with: "")
   //    }
 
-  let path = matchParams.templateURL
+  guard let params = matchParams else {
+    return nil
+  }
+  
+  let path = params.templateURL
 
   let sql: SQLQueryString
 
-  switch matchParams.cacheType {
+  switch params.type {
   case .tile(let tileIndex):
     sql = """
     SELECT
@@ -177,7 +181,7 @@ func getCachedResource(from db: any SQLDatabase, url: URL, forceDownscale: Bool 
   let response = TileResponse(
     data: res.data,
     compressed: res.compressed,
-    url: matchParams.inputURL,
+    url: params.inputURL,
     urlTemplate: res.url,
     uuid: uuid,
     contentType: ctypeIndex[url.pathExtension]

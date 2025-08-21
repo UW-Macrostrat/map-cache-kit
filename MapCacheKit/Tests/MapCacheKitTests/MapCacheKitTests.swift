@@ -10,12 +10,18 @@ import Numerics
 
 fileprivate func withApp(cacheDatabase: SQLiteConfiguration, _ test: (Application) async throws -> Void) async throws {
   // Set an environment variable for an in-memory database for testing
-  var env = try Environment.detect()
+  let env = try Environment.detect()
 
-  let app = try await Application.make(.testing)
+  let app = try await Application.make(env)
+
   do {
+    let apiToken = Environment.get("MAPBOX_API_KEY")
+    let cfg = AppConfig(
+      mapboxAPIToken: apiToken,
+      autoMigrate: true
+    )
     // Configure the app with an in-memory SQLite database
-    try await configure(app, cacheDatabase: cacheDatabase)
+    try await configure(app, cacheDatabase: cacheDatabase, config: cfg)
     try await app.autoMigrate()
     try await test(app)
     try await app.autoRevert()
@@ -164,10 +170,10 @@ struct MapCacheKitTests {
 
       let res = try await getTilesToDownload(with: app, using: definition)
 
-      #expect(res.tilesToDownload.count == 0)
-      #expect(res.tilesAlreadyDownloaded.count == 5)
+      #expect(res.toDownload.count == 0)
+      #expect(res.alreadyDownloaded.count == 5)
       // More than a 100 kb of tiles should be downloaded
-      #expect(Double(res.totalSizeOfTilesDownloaded) > 1e5)
+      #expect(Double(res.totalSizeDownloaded) > 1e5)
 
     }
   }
@@ -192,10 +198,10 @@ struct MapCacheKitTests {
 
       let res = try await getTilesToDownload(with: app, using: definition)
 
-      #expect(res.tilesToDownload.count == 0)
-      #expect(res.tilesAlreadyDownloaded.count == 13)
+      #expect(res.toDownload.count == 0)
+      #expect(res.alreadyDownloaded.count == 13)
       // More than a 100 kb of tiles should be downloaded
-      #expect(Double(res.totalSizeOfTilesDownloaded) > 1e5)
+      #expect(Double(res.totalSizeDownloaded) > 1e5)
 
     }
   }
@@ -211,15 +217,14 @@ struct MapCacheKitTests {
 
       // decode the style
       let styleSpec = try JSONDecoder().decode(StyleSpec.self, from: Data(style.utf8))
-
       let fontStacks = findFontsRequestedByMapboxStyle(spec: styleSpec)
-
       var totalSize: Int64 = 0
+      let fontStackURLs = getFontStackURLs(styleSpec, fontStacks: Array(fontStacks), ranges: ["0-255"])
 
-      let fontStackURLs = try getFontStackURLs(styleSpec, fontStacks: Array(fontStacks), ranges: ["0-255"])
-
+      let db = try app.getDatabase()
       for url in fontStackURLs {
-        guard let existingAssetInfo = try await findResourceInDatabase(db: app.db, url: url, kind: .font) else {
+        let asset = RequestedAsset(urlTemplate: url, type: .resource(.font))
+        guard let existingAssetInfo = try await find(asset: asset, in: db) else {
           throw RuntimeError.invalidArgument("Font stack \(url) not found in database")
         }
 
@@ -249,16 +254,18 @@ struct MapCacheKitTests {
 
       #expect(resources.count > 10, "There should be at least ten resources requested by the style")
 
-      let fontStacks = resources.filter { $0.kind == .font }
+      let fontStacks = resources.filter { $0.isResource(type: .font) }
       #expect(fontStacks.count == 6, "There should be six font stacks in the style")
-      let spriteResources = resources.filter { $0.kind == .sprite || $0.kind == .spritejson }
+      let spriteResources = resources.filter { $0.isResource(type: .sprite) || $0.isResource(type: .spritejson) }
       #expect(spriteResources.count == 4, "There should be four sprite resources in the style")
-      let sourceResources = resources.filter { $0.kind == .source }
+      let sourceResources = resources.filter { $0.isResource(type: .source) }
       #expect(sourceResources.count == 3, "There should be three source resources in the style")
 
       var totalSize: Int64 = 0
+      
+      let db = try app.getDatabase()
       for resource in resources {
-        guard let existingAssetInfo = try await findResourceInDatabase(db: app.db, url: resource.urlTemplate, kind: resource.kind) else {
+        guard let existingAssetInfo = try await find(asset: resource, in: db) else {
           throw RuntimeError.invalidArgument("Resource \(resource.urlTemplate) not found in database")
         }
 
@@ -473,27 +480,24 @@ struct IntersectingTileTests {
 @Test("Canonicalize Mapbox style URL for caching")
 func canonicalizeStyleURLForCaching() async throws {
   let styleURL = "https://api.mapbox.com/styles/v1/mapbox/streets-v11"
-  let canonicalizedURL = getMapboxCanonicalURL(styleURL)
+  guard let canonicalizedURL = getMapboxCanonicalURL(styleURL) else {
+    throw RuntimeError.configurationError("Failed to canonicalize style URL")
+  }
   #expect(
     canonicalizedURL.templateURL == "mapbox://styles/mapbox/streets-v11"
   )
-}
-
-@Test("Get style URL for request")
-func getStyleURLForRequest() async throws {
-  let canonicalURL = "mapbox://tiles/mapbox.mapbox-streets-v8/{z}/{x}/{y}.vector.pbf"
 }
 
 @Test("Download tile that has no data")
 func downloadNoDataTile() async throws {
   try await withApp { app in
     let urlTemplate = "mapbox://tiles/mapbox.mapbox-streets-v8/{z}/{x}/{y}.vector.pbf"
-    let tile = CandidateTile(x: 8, y: 15, z: 4, urlTemplate: urlTemplate)
+    let tile = RequestedAsset(urlTemplate: urlTemplate, type: .tile(TileIndex(x: 8, y: 15, z: 4)))
     guard let mapboxToken = try app.config.mapboxAPIToken else {
       throw RuntimeError.invalidArgument("Mapbox API token not set in config")
     }
 
-    let uri = getDownloadURL(tile: tile, params: [
+    let uri = buildDownloadURL(for: tile, params: [
       "access_token": mapboxToken,
     ])
     let res = try await downloadFile(with: app, url: uri)

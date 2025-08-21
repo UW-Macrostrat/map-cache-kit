@@ -4,7 +4,7 @@ import NIOSSL
 import Vapor
 import NIOCore
 
-public struct AppConfig : Sendable {
+public struct AppConfig: Sendable {
   let mapboxAPIToken: String?
   let staticMapStyle: String
   let maxConcurrentHTTPConnections: Int
@@ -14,6 +14,7 @@ public struct AppConfig : Sendable {
   // If we don't want to download the entire unicode range for each font, we can limit the maximum code point
   let maxCodePoint: Int
   let autoMigrate: Bool
+  let methods: any AppInjectedMethods
   
   public init(
     mapboxAPIToken: String?,
@@ -23,6 +24,7 @@ public struct AppConfig : Sendable {
     maxNumberOfRegions: Int = 10,
     maxCodePoint: Int = 65535,
     autoMigrate: Bool = true,
+    methods: any AppInjectedMethods = DefaultInjectedMethods()
   ) {
     self.mapboxAPIToken = mapboxAPIToken
     self.staticMapStyle = staticMapStyle
@@ -31,7 +33,26 @@ public struct AppConfig : Sendable {
     self.maxNumberOfRegions = maxNumberOfRegions
     self.maxCodePoint = maxCodePoint
     self.autoMigrate = autoMigrate
+    self.methods = methods
   }
+}
+
+public protocol AppInjectedMethods: Sendable {
+  func addParams(app: Application, for asset: RequestedAsset) throws -> [String: String?]
+}
+
+extension AppInjectedMethods {
+  public func addParams(app: Application, for asset: RequestedAsset) throws -> [String: String?] {
+    if asset.isMapboxAsset {
+      let mapboxToken = try app.config.mapboxAPIToken
+      return ["access_token": mapboxToken]
+    }
+    return [:]
+  }
+}
+
+public struct DefaultInjectedMethods: AppInjectedMethods {
+  public init() {}
 }
 
 
@@ -90,6 +111,13 @@ extension Application {
     if let task = self.taskStore.removeValue(forKey: id) {
       task.cancel()
     }
+  }
+  
+  func getDatabase() throws -> any SQLDatabase {
+    guard let db = self.db as? any SQLDatabase else {
+      throw RuntimeError.databaseError("Database is not an SQLDatabase")
+    }
+    return db
   }
 }
 

@@ -1,6 +1,21 @@
 import Foundation
 import GEOSwift
 
+enum SourceType: String, Codable {
+  case vector = "vector"
+  case raster = "raster"
+  case rasterDem = "raster-dem"
+  case geojson = "geojson"
+  case image = "image"
+  case video = "video"
+}
+
+struct CacheLayerDefinition: Hashable, Equatable {
+  let type: SourceType
+  // Cache key used to store tiles in the database
+  let urlTemplate: String
+}
+
 enum Argument<T: Codable>: Codable {
   case string(String)
   case integer(Int)
