@@ -199,88 +199,42 @@ func downloadRegionAssets(
   let downloadTasks: [@Sendable () async throws -> DownloadResult] = requestedAssets.map { asset in
     return {
       try Task.checkCancellation()
-      switch asset.type {
-      case .resource(let kind):
-        let uri = URI(string: asset.urlTemplate)
-        do {
-          var params = [String: String]()
-          
-          if !asset.thirdParty {
-            params = ["access_token": mapboxToken]
+
+      var params = [String: String?]()
+      if !asset.thirdParty {
+        params = ["access_token": mapboxToken]
+      }
+      let url = buildDownloadURL(for: asset, params: params)
+
+      do {
+        let data = try await getData(app, url: url)
+        switch asset.type {
+        case .resource(let kind):
+          guard let d1 = data else {
+            throw RuntimeError.downloadFailed("Empty resources are not supported")
           }
-          
-          let uri = buildDownloadURL(for: asset, params: params)
-          
-          let res = try await downloadFile(with: app, url: uri)
-          app.logger.info("Resource \(uri): \(res.status)")
-          
-          guard res.status == .ok,
-                let body = res.body,
-                body.readableBytes > 0
-          else {
-            throw RuntimeError.invalidArgument("Failed to download file from \(uri)")
-          }
-          let data = Data(buffer: body)
-          
-          let compressed = compressionAlgorithm(for: data) != nil
-          
           try await persistResource(
-            to: db, url: asset.urlTemplate, data: data,
-            compressed: compressed, kind: kind, regionID: regionID
+            to: db, url: asset.urlTemplate, data: d1,
+            kind: kind, regionID: regionID
           )
-          return DownloadResult(
-            uri: uri, request: asset, result: .success(Int64(data.count))
-          )
-          
-        } catch {
-          return DownloadResult(
-            uri: uri, request: asset, result: .failure(error)
-          )
-        }
-      case .tile(let tileIx):
-        var params: [String: String] = [:]
-        if !asset.thirdParty {
-          params = ["access_token": mapboxToken]
-        }
-        let uri = buildDownloadURL(for: asset, params: params)
-        do {
-          let res = try await downloadFile(with: app, url: uri)
-          app.logger.debug("Tile \(uri): \(res.status)")
-          
-          var data: Data? = nil
-          switch res.status {
-          case .noContent, .notFound:
-            data = nil
-          case .ok:
-            if let body = res.body, body.readableBytes > 0 {
-              data = Data(buffer: body)
-            }
-          default:
-            throw RuntimeError.invalidArgument("Unexpected status code \(res.status) for \(uri)")
-          }
-          
-          let compressed = compressionAlgorithm(for: data) != nil
-          
+        case .tile(let tileIx):
           try await persistTile(
             to: db,
             urlTemplate: asset.urlTemplate,
             tile: tileIx,
             data: data,
-            // TODO: be more intelligent about compression
-            compressed: compressed,
             regionID: regionID,
             pixelRatio: definition.pixelRatio
           )
-          
-          return DownloadResult(
-            uri: uri, request: asset, result: .success(Int64(data?.count ?? 0))
-          )
-        } catch {
-          app.logger.error("Failed to download \(uri): \(error)")
-          return DownloadResult(
-            uri: uri, request: asset, result: .failure(error)
-          )
         }
+        return DownloadResult(
+          uri: url, request: asset, result: .success(Int64(data?.count ?? 0))
+        )
+      } catch let error {
+        app.logger.error("Failed to download \(url): \(error)")
+        return DownloadResult(
+          uri: url, request: asset, result: .failure(error)
+        )
       }
     }
   }
@@ -382,6 +336,22 @@ func downloadRegionAssets(
   }
 }
 
+func getData(_ app: Application, url: URI) async throws -> Data? {
+  let res = try await downloadFile(with: app, url: url)
+  switch res.status {
+  case .noContent, .notFound:
+    return nil
+  case .ok:
+    if let body = res.body, body.readableBytes > 0 {
+      return Data(buffer: body)
+    }
+  default:
+    return nil
+  }
+  return nil
+}
+
+
 func getAndCacheThumbnail(
   with app: Application,
   for region: MBXCacheRegion,
@@ -434,7 +404,6 @@ func getAndCacheThumbnail(
     to: db,
     url: template,
     data: data,
-    compressed: false,
     kind: .thumbnail,
     regionID: regionID
   )

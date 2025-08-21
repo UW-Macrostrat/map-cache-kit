@@ -9,7 +9,7 @@ import FluentSQLiteDriver
 import Vapor
 
 func persistTile(
-  to db: any SQLDatabase, urlTemplate: String,  tile: TileIndex, data: Data?, compressed: Bool, regionID: Int, pixelRatio: Int = 1
+  to db: any SQLDatabase, urlTemplate: String,  tile: TileIndex, data: Data?, regionID: Int, pixelRatio: Int = 1
 ) async throws {
   try Task.checkCancellation() // Check if the task has been cancelled
   // Cast to SQLDatabase
@@ -29,6 +29,7 @@ func persistTile(
   
   //TODO: add unique constraints
   
+  let compressed = compressionAlgorithm(for: data) != nil
   
   let tileInsert: SQLQueryString = """
     INSERT INTO tiles (x, y, z, url_template, pixel_ratio, data, compressed, accessed)
@@ -55,8 +56,9 @@ func persistTile(
 }
 
 func persistResource(
-  to db: any SQLDatabase, url: String, data: Data, compressed: Bool, kind: ResourceKind, regionID: Int
+  to db: any SQLDatabase, url: String, data: Data, kind: ResourceKind, regionID: Int
 ) async throws {
+  let compressed = compressionAlgorithm(for: data) != nil
   let data1 = ByteBuffer(data: data)
   
   let resourceInsert: SQLQueryString = """
