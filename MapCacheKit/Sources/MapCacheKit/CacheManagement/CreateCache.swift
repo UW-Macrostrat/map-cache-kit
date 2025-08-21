@@ -156,7 +156,7 @@ func downloadRegionAssets(
     return {
       try Task.checkCancellation()
 
-      let params = try app.config.methods.addParams(app: app, for: asset)
+      let params = try await app.config.methods.addParams(app: app, for: asset)
       let url = buildDownloadURL(for: asset, params: params)
       do {
         let data = try await getData(app, url: url)

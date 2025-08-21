@@ -38,11 +38,11 @@ public struct AppConfig: Sendable {
 }
 
 public protocol AppInjectedMethods: Sendable {
-  func addParams(app: Application, for asset: RequestedAsset) throws -> [String: String?]
+  func addParams(app: Application, for asset: RequestedAsset) async throws -> [String: String?]
 }
 
 extension AppInjectedMethods {
-  public func addParams(app: Application, for asset: RequestedAsset) throws -> [String: String?] {
+  public func addParams(app: Application, for asset: RequestedAsset) async throws -> [String: String?] {
     if asset.isMapboxAsset {
       let mapboxToken = try app.config.mapboxAPIToken
       return ["access_token": mapboxToken]
