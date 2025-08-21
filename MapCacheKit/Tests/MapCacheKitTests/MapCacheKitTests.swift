@@ -12,10 +12,16 @@ fileprivate func withApp(cacheDatabase: SQLiteConfiguration, _ test: (Applicatio
   // Set an environment variable for an in-memory database for testing
   var env = try Environment.detect()
 
-  let app = try await Application.make(.testing)
+  let app = try await Application.make(env)
+
   do {
+    let apiToken = Environment.get("MAPBOX_API_KEY")
+    let cfg = AppConfig(
+      mapboxAPIToken: apiToken,
+      autoMigrate: true
+    )
     // Configure the app with an in-memory SQLite database
-    try await configure(app, cacheDatabase: cacheDatabase)
+    try await configure(app, cacheDatabase: cacheDatabase, config: cfg)
     try await app.autoMigrate()
     try await test(app)
     try await app.autoRevert()
