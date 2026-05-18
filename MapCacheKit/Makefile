@@ -1,3 +1,3 @@
 
 all:
-  swift run map-cache serve
+	swift run map-cache serve
