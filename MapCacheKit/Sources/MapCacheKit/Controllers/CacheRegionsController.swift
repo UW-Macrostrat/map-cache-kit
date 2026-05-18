@@ -403,6 +403,12 @@ actor WebSocketConnectionManager {
 
   func add(_ ws: WebSocket) {
     connections.append(ws)
+    
+    ws.onClose.whenComplete { res in
+      Task {
+        await self.remove(ws)
+      }
+    }
   }
 
   func remove(_ ws: WebSocket) {

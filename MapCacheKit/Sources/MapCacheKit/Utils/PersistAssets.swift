@@ -8,6 +8,8 @@ import Fluent
 import FluentSQLiteDriver
 import Vapor
 
+let logger = Logger(label: "org.macrostrat.MapCacheKit")
+
 func persistTile(
   to db: any SQLDatabase, urlTemplate: String,  tile: TileIndex, data: Data?, regionID: Int, pixelRatio: Int = 1
 ) async throws {
@@ -30,6 +32,8 @@ func persistTile(
   //TODO: add unique constraints
 
   let compressed = compressionAlgorithm(for: data) != nil
+  
+  logger.debug("Persisting tile at z:\(tile.z) x:\(tile.x) y:\(tile.y), (pixel ratio \(ratio), compressed: \(compressed))")
 
   let tileInsert: SQLQueryString = """
     INSERT INTO tiles (x, y, z, url_template, pixel_ratio, data, compressed, accessed)
@@ -65,6 +69,7 @@ func persistResource(
   let compressed = compressionAlgorithm(for: data) != nil
   let data1 = ByteBuffer(data: data)
 
+  logger.debug("Persisting resource at url: \(url) (kind: \(kind), compressed: \(compressed))")
   let resourceInsert: SQLQueryString = """
     INSERT INTO resources (url, data, compressed, kind, accessed)
     VALUES (
@@ -81,7 +86,6 @@ func persistResource(
       accessed = excluded.accessed
     RETURNING id
   """
-
   guard let id = try await db.raw(resourceInsert)
     .first(decodingColumn: "id", as: Int.self)
   else {

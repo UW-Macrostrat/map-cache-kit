@@ -64,10 +64,6 @@ struct DownloadTaskStoreKey: StorageKey {
   typealias Value = [Int: Task<Void, any Error>]
 }
 
-struct ConcurrentDownloadManagerKey: StorageKey {
-  typealias Value = ConcurrentDownloadManager
-}
-
 extension Application {
 
   public var config: AppConfig {
@@ -76,21 +72,6 @@ extension Application {
         throw RuntimeError.configurationError("AppConfig not set in application storage")
       }
       return res
-    }
-  }
-
-  var downloadManger: ConcurrentDownloadManager {
-    get throws {
-      let cfg = try self.config
-      if let manager = self.storage.get(ConcurrentDownloadManagerKey.self) {
-        return manager
-      } else {
-        let manager = ConcurrentDownloadManager(
-          maxConcurrentDownloads: cfg.maxConcurrentHTTPConnections
-        )
-        self.storage.set(ConcurrentDownloadManagerKey.self, to: manager)
-        return manager
-      }
     }
   }
 
