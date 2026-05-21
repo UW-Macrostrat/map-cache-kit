@@ -224,12 +224,25 @@ func downloadRegionAssets(
   var lastVal = initialProgress
 
   return try await withThrowingTaskGroup(of: DownloadResult.self) { taskGroup in
-    // Handle completed downloads
-    for task in downloadTasks {
+    let maxConcurrent = (try? app.config.maxConcurrentHTTPConnections) ?? 4
+    var tasksInFlight = 0
+    var taskIterator = downloadTasks.makeIterator()
+    
+    // Seed the group up to maxConcurrent
+    while tasksInFlight < maxConcurrent, let task = taskIterator.next() {
       taskGroup.addTask(operation: task)
+      tasksInFlight += 1
     }
 
     for try await result in taskGroup {
+      tasksInFlight -= 1
+      
+      // Refill one slot for each completed task
+      if let next = taskIterator.next() {
+        taskGroup.addTask(operation: next)
+        tasksInFlight += 1
+      }
+      
       let errorMessage: String?
       var status: CacheDownloadStatus = .pending
       switch result.result {
@@ -278,15 +291,29 @@ func downloadRegionAssets(
       )
 
       lastVal = val
-      try await onProgress(val)
+      do {
+        try await onProgress(val)
+      } catch {
+        // Log but continue — a broken progress channel
+        // shouldn't abort the download
+        app.logger.warning("Progress callback failed: \(error)")
+      }
 
       if status == .cancelled {
-        return val
+        taskGroup.cancelAll()
+        // Drain remaining results after cancellation.
+        break
       }
     }
+    
+    for try await _ in taskGroup {
+      // No-op, just draining remaining results after cancellation
+    }
+    
     return lastVal
   }
 }
+
 
 func getData(_ app: Application, url: URI) async throws -> Data? {
   let res = try await downloadFile(with: app, url: url)
