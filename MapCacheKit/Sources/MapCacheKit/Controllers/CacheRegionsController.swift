@@ -93,7 +93,7 @@ struct CacheRegionsController: RouteCollection {
     return CacheRegionsInfo(
       regions: r1,
       assets: total,
-      maxNumberOfRegions: (try? req.application.config.maxNumberOfRegions) ?? 10
+      maxNumberOfRegions: (try? req.application.config.maxNumberOfRegions) ?? 100
     )
   }
 
@@ -403,7 +403,7 @@ actor WebSocketConnectionManager {
 
   func add(_ ws: WebSocket) {
     connections.append(ws)
-    
+
     ws.onClose.whenComplete { res in
       Task {
         await self.remove(ws)
