@@ -42,3 +42,7 @@ function boundingPolygon(bounds: LngLatBounds): Polygon {
 export function boundsForPolygon(polygon: Polygon): LngLatBounds {
   return getBounds(bbox(polygon));
 }
+
+export function capitalize(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}

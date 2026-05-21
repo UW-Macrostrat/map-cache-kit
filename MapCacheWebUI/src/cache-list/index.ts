@@ -5,40 +5,34 @@ import type {
   ResourceInfo,
 } from "./types";
 import { StaticCacheMap } from "./cache-map";
-import { memo } from "react";
 import { findGlobalCache, isGlobalCache, isStyleCache } from "./utils";
 import {
   Button,
   ButtonGroup,
-  Card,
   FormGroup,
-  InputGroup,
   Intent,
   NonIdealState,
+  OverlayToaster,
   ProgressBar,
   Spinner,
-  Switch,
 } from "@blueprintjs/core";
 import styles from "./map-caches.module.sass";
 import {
   cacheDataAtom,
-  mapAtom,
-  showCacheFormAtom,
-  newCacheDataAtom,
-  cacheLayersAtom,
-  useDownloadProgress,
   createGlobalCache,
-  deleteCache,
   deleteAllCaches,
-  createCache,
-  setRegionName,
+  deleteCache,
+  mapAtom,
   refreshDefinitions,
+  showCacheFormAtom,
+  useDownloadProgress,
 } from "../state.ts";
-import { useAtom, useSetAtom } from "jotai";
+import { capitalize } from "./utils";
+import { useAtom } from "jotai";
 import { bbox } from "@turf/bbox";
 import type { LngLatBoundsLike } from "mapbox-gl";
-import { OverlayToaster } from "@blueprintjs/core";
 import { createRoot } from "react-dom/client";
+import { NewCacheForm } from "../new-cache-form.ts";
 
 const m = hyper.styled(styles);
 
@@ -135,63 +129,6 @@ function CacheList({
   ]);
 }
 
-function NewCacheForm() {
-  const [cacheData] = useAtom(newCacheDataAtom);
-  const [cacheLayers, setCacheLayers] = useAtom(cacheLayersAtom);
-  const setShowForm = useSetAtom(showCacheFormAtom);
-
-  return m(Card, [
-    m(InputGroup, {
-      value: cacheData.name,
-      onValueChange(value) {
-        setRegionName(value);
-      },
-    }),
-    m(LabeledControl, { label: "Layers" }, [
-      m("div.cache-layers-checkboxes", [
-        ["bedrock", "basemap", "satellite"].map((layer) =>
-          m(Switch, {
-            type: "checkbox",
-            label: capitalize(layer),
-            checked: cacheLayers[layer],
-            onChange: (e) => {
-              setCacheLayers((val) => {
-                return {
-                  ...val,
-                  [layer]: e.target.checked,
-                };
-              });
-            },
-          }),
-        ),
-      ]),
-    ]),
-    m(ButtonGroup, [
-      m(
-        Button,
-        {
-          icon: "map-create",
-          intent: "primary",
-          onClick: clickHandler(createCache),
-        },
-        "Create cache",
-      ),
-      m(
-        Button,
-        {
-          icon: "cross",
-          intent: "danger",
-          onClick() {
-            setShowForm(false);
-          },
-        },
-        "Cancel",
-      ),
-    ]),
-  ]);
-}
-
-
 function CacheItem({ cache }: { cache: MapCacheListing }) {
   const downloadStatus = useDownloadProgress(cache.id);
   const progress = downloadStatus?.progress ?? 1;
@@ -262,10 +199,6 @@ function CacheZoomLevels({ cache }: { cache: MapCacheListing }) {
     " - ",
     maxZoom,
   ]);
-}
-
-function LabeledControl({ label, children, inline = true }) {
-  return m(FormGroup, { label, inline }, children);
 }
 
 type CacheUIState = "deleting" | "refreshing" | null;
@@ -362,7 +295,7 @@ function AddGlobalCacheButton() {
   );
 }
 
-function clickHandler(action: () => Promise<void>) {
+export function clickHandler(action: () => Promise<void>) {
   return async () => {
     try {
       await action();
@@ -430,8 +363,4 @@ function CacheSizes({
 function CacheSize({ size }) {
   const sz = Math.round(size / 1024 / 1024);
   return m("span.size", [sz, " ", m("span.size-unit", "MB")]);
-}
-
-function capitalize(str) {
-  return str.charAt(0).toUpperCase() + str.slice(1);
 }
