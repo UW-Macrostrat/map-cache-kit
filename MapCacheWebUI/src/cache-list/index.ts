@@ -75,7 +75,7 @@ export function CachePanelView() {
   ]);
 
   if (showForm) {
-    topElement = m(NewCacheForm);
+    return m(NewCacheForm);
   }
 
   return m("div.cache-list-panel", [

@@ -134,6 +134,16 @@ interface CacheAreaProps {
 
 export type CacheArea = Feature<Polygon, CacheAreaProps>;
 
+export const cacheZoomDifferentialAtom = atom(3);
+
+export const cacheZoomRangeAtom = atom((get) => {
+  const dz = get(cacheZoomDifferentialAtom);
+  const mapPosition = get(mapPositionAtom);
+  const minZoom = Math.min(17, Math.floor(mapPosition.target.zoom));
+  const maxZoom = Math.min(20, minZoom + dz);
+  return [minZoom, maxZoom];
+});
+
 export const candidateCacheAreaAtom = atom<CacheArea | null>((get) => {
   const map = get(mapAtom);
   const showCacheForm = get(showCacheFormAtom);
@@ -142,10 +152,7 @@ export const candidateCacheAreaAtom = atom<CacheArea | null>((get) => {
     return null;
   }
 
-  // Need this to ensure that the map position updates
-  const mapPosition = get(mapPositionAtom);
-  const minZoom = Math.min(17, Math.floor(mapPosition.target.zoom));
-  const maxZoom = Math.min(20, minZoom + 3);
+  const [minZoom, maxZoom] = get(cacheZoomRangeAtom);
 
   const bounds = map.getBounds();
 
@@ -359,6 +366,7 @@ export const mapStyleAtom = atom(async (get) => {
 mapStyleAtom.debugLabel = "mapStyleAtom";
 
 const cacheCreateDataAtom = atom(async (get) => {
+  /** Create cache data with a new request */
   const cache = await get(newCacheDataAtom);
   if (cache == null) {
     return null;
