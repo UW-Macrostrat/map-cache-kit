@@ -141,11 +141,19 @@ func downloadRegionAssets(
 
   // Get the assets to download
   let assets = try await getRegionAssets(with: app, using: definition, options: options)
+  
+  app.logger.debug("Computed region assets")
+  
   let db = try app.getDatabase()
 
+  app.logger.debug("Linking \(assets.tiles.alreadyDownloaded.count) tiles to region")
+  
   for tile in assets.tiles.alreadyDownloaded {
     try await insertLink(db, regionID: regionID, tileID: tile)
   }
+  
+  app.logger.debug("Linking \(assets.resources.alreadyDownloaded.count) resources to region")
+  
   for resource in assets.resources.alreadyDownloaded {
     try await insertLink(db, regionID: regionID, resourceID: resource)
   }
@@ -190,6 +198,8 @@ func downloadRegionAssets(
       }
     }
   }
+  
+  app.logger.debug("Created \(downloadTasks.count) download tasks")
 
   // Download tiles
   var downloadedTiles = 0
@@ -269,6 +279,10 @@ func downloadRegionAssets(
           status = .cancelled
         }
       }
+      
+      let totalCompleted = downloadedResources + downloadedTiles + failedResources + failedTiles
+      
+      
 
       if taskGroup.isEmpty && status != .cancelled {
         status = .complete
@@ -289,6 +303,12 @@ func downloadRegionAssets(
         lastErrorMessage: errorMessage,
         status: status
       )
+      
+      if (totalCompleted % 100 == 0) {
+        app.logger.debug("""
+          Download progress: \(totalCompleted) / \(totalTiles + totalResources) (tiles: \(downloadedTiles)/\(totalTiles), resources: \(downloadedResources)/\(totalResources), failed tiles: \(failedTiles), failed resources: \(failedResources))
+          """)
+      }
 
       lastVal = val
       do {
@@ -305,6 +325,8 @@ func downloadRegionAssets(
         break
       }
     }
+    
+    app.logger.debug("Finished download with status \(lastVal.status.rawValue)")
     
     for try await _ in taskGroup {
       // No-op, just draining remaining results after cancellation
@@ -430,7 +452,7 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
   }
 
   let db = try app.getDatabase()
-  return try await findAll(assets: candidateTiles, in: db)
+  return try await findAllTilesQuadtree(candidateTiles, in: db)
 }
 
 struct ExistingAssetInfo: Content {

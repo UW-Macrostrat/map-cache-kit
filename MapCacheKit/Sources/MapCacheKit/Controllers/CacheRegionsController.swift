@@ -29,6 +29,7 @@ struct CacheRegionsController: RouteCollection {
       await connectionManager.add(ws)
     }
 
+    regions.post("estimate", use: self.estimateRegion)
     regions.delete(use: self.deleteAllCacheRegions)
     regions.post(":id", "download", use: self.downloadAssets)
     regions.post(":id", "cancel", use: self.cancelRegionDownload)
@@ -93,7 +94,7 @@ struct CacheRegionsController: RouteCollection {
     return CacheRegionsInfo(
       regions: r1,
       assets: total,
-      maxNumberOfRegions: (try? req.application.config.maxNumberOfRegions) ?? 10
+      maxNumberOfRegions: (try? req.application.config.maxNumberOfRegions) ?? 100
     )
   }
 
@@ -175,6 +176,30 @@ struct CacheRegionsController: RouteCollection {
 
   // Route to create a cache region
   @Sendable
+  func estimateRegion(req: Request) async throws -> CacheRegionEstimate {
+    let cacheInfo = try req.content.decode(CacheCreationInfo.self)
+    let regionCandidate = cacheInfo.synthesizeLegacyDefinition()
+    let definition = try regionCandidate.asRegionDefinition(styles: cacheInfo.styles)
+
+    let maxCodePoint = (try? req.application.config.maxCodePoint) ?? 65535
+    let assets = try await getRegionAssets(
+      with: req.application,
+      using: definition,
+      options: ResourceFindOptions(maxCodePoint: maxCodePoint)
+    )
+
+    return CacheRegionEstimate(
+      tilesTotal: assets.tiles.needed.count,
+      tilesCached: assets.tiles.alreadyDownloaded.count,
+      tilesToDownload: assets.tiles.toDownload.count,
+      resourcesTotal: assets.resources.needed.count,
+      resourcesCached: assets.resources.alreadyDownloaded.count,
+      resourcesToDownload: assets.resources.toDownload.count,
+      cachedSize: assets.tiles.totalSizeDownloaded + assets.resources.totalSizeDownloaded
+    )
+  }
+
+  @Sendable
   func create(req: Request) async throws -> MBXCacheRegion {
     let cacheInfo = try req.content.decode(CacheCreationInfo.self)
     let regionCandidate = cacheInfo.synthesizeLegacyDefinition()
@@ -229,10 +254,12 @@ struct CacheRegionsController: RouteCollection {
       throw Abort(.notFound, reason: "Region not found")
     }
 
-    throw Abort(.notImplemented, reason: "Region download without style post not implemented yet")
+    // Accept optional styles in the request body. If omitted, the download
+    // will still run but will skip tile layers (useful as a no-op check).
+    let styles = (try? req.content.decode(CacheDownloadRequest.self))?.styles ?? []
 
-    //self.startRegionDownload(req.application, region: region, styles: [])
-    //return .ok
+    self.startRegionDownload(req.application, region: region, styles: styles)
+    return .accepted
   }
 
   func startRegionDownload(_ app: Application, region: MBXCacheRegion, styles: [StyleDefinition]) {
@@ -403,7 +430,7 @@ actor WebSocketConnectionManager {
 
   func add(_ ws: WebSocket) {
     connections.append(ws)
-    
+
     ws.onClose.whenComplete { res in
       Task {
         await self.remove(ws)
@@ -510,6 +537,12 @@ struct CacheCreationInfo: Content {
       description: desc
     )
   }
+}
+
+struct CacheDownloadRequest: Content {
+  /// Style definitions to use when filling missing tiles. Passing an empty
+  /// array (or omitting the body) results in a no-op download.
+  let styles: [StyleDefinition]
 }
 
 struct PolygonGeometry: Content {
@@ -654,6 +687,17 @@ struct CacheRegionsInfo: Content {
   let regions: [SerializableCacheRegion]
   let assets: CachedAssetsInfo
   let maxNumberOfRegions: Int
+}
+
+struct CacheRegionEstimate: Content {
+  let tilesTotal: Int
+  let tilesCached: Int
+  let tilesToDownload: Int
+  let resourcesTotal: Int
+  let resourcesCached: Int
+  let resourcesToDownload: Int
+  /// Bytes already present in the local cache for this region's assets
+  let cachedSize: Int64
 }
 
 func isGlobalGeometry(_ geom: Geometry) -> Bool {

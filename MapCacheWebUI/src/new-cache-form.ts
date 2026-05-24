@@ -1,6 +1,8 @@
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   cacheLayersAtom,
+  cacheZoomDifferentialAtom,
+  cacheZoomRangeAtom,
   createCache,
   newCacheDataAtom,
   setRegionName,
@@ -12,6 +14,7 @@ import {
   Card,
   FormGroup,
   InputGroup,
+  Slider,
   Switch,
 } from "@blueprintjs/core";
 import hyper from "@macrostrat/hyper";
@@ -24,9 +27,14 @@ const m = hyper.styled(styles);
 export function NewCacheForm() {
   const [cacheData] = useAtom(newCacheDataAtom);
   const [cacheLayers, setCacheLayers] = useAtom(cacheLayersAtom);
+  const [zoomDifferential, setZoomDifferential] = useAtom(
+    cacheZoomDifferentialAtom,
+  );
+  const [minZoom, maxZoom] = useAtomValue(cacheZoomRangeAtom);
   const setShowForm = useSetAtom(showCacheFormAtom);
 
-  return m(Card, [
+  return m("div.new-cache-form", [
+    m("h3", "New cache region"),
     m(InputGroup, {
       value: cacheData.name,
       onValueChange(value) {
@@ -51,6 +59,19 @@ export function NewCacheForm() {
           }),
         ),
       ]),
+    ]),
+    m(LabeledControl, { label: "Zoom depth" }, [
+      m(Slider, {
+        min: 3,
+        max: 6,
+        stepSize: 1,
+        labelStepSize: 1,
+        value: zoomDifferential,
+        onChange: setZoomDifferential,
+      }),
+    ]),
+    m(LabeledControl, { label: "Zoom range" }, [
+      m("span", `${minZoom} – ${maxZoom}`),
     ]),
     m(ButtonGroup, [
       m(

@@ -19,13 +19,17 @@ import {
 import styles from "./map-caches.module.sass";
 import {
   cacheDataAtom,
+  cancelCache,
   createGlobalCache,
   deleteAllCaches,
   deleteCache,
   mapAtom,
   refreshDefinitions,
+  restartCacheDownload,
   showCacheFormAtom,
+  triggerCacheDownload,
   useDownloadProgress,
+  useIsDownloading,
 } from "../state.ts";
 import { capitalize } from "./utils";
 import { useAtom } from "jotai";
@@ -75,7 +79,7 @@ export function CachePanelView() {
   ]);
 
   if (showForm) {
-    topElement = m(NewCacheForm);
+    return m(NewCacheForm);
   }
 
   return m("div.cache-list-panel", [
@@ -131,8 +135,7 @@ function CacheList({
 
 function CacheItem({ cache }: { cache: MapCacheListing }) {
   const downloadStatus = useDownloadProgress(cache.id);
-  const progress = downloadStatus?.progress ?? 1;
-  const isDownloading = progress < 1;
+  const isDownloading = useIsDownloading(cache.id);
 
   const isGlobal = isGlobalCache(cache);
 
@@ -159,32 +162,41 @@ function CacheItem({ cache }: { cache: MapCacheListing }) {
         m("div.ion-card-content", [
           m(CacheLayers, { layers: cache.description?.layers }),
           m(CacheZoomLevels, { cache }),
-          m("div.cache-status", [
-            m.if(isDownloading)(ProgressBar, {
-              value: progress,
-              stripes: false,
-              intent:
-                (downloadStatus?.hasErrors ?? false)
-                  ? Intent.WARNING
-                  : Intent.PRIMARY,
-            }),
-            m("p.flex-row", [
-              m(CacheSizes, {
-                ...getBestResourceInfo(cache.assets, downloadStatus),
-              }),
-              m("span.spacer"),
-              m.if(!isDownloading)(CacheDateBlock, { cache }),
-            ]),
-          ]),
+          m(CacheDownloadInfo, { cache }),
         ]),
         m(CacheControlActionButtons, {
-          cacheId: cache.id,
+          cache,
+          isDownloading,
+          downloadStatus,
         }),
       ]),
       m(StaticCacheMap, {
         cache,
         onClick,
       }),
+    ]),
+  ]);
+}
+
+function CacheDownloadInfo({ cache }) {
+  const downloadStatus = useDownloadProgress(cache.id);
+  const progress = downloadStatus?.progress ?? 1;
+  const isDownloading = progress < 1;
+  if (!isDownloading) return null;
+
+  return m("div.cache-status", [
+    m(ProgressBar, {
+      value: progress,
+      stripes: false,
+      intent:
+        (downloadStatus?.hasErrors ?? false) ? Intent.WARNING : Intent.PRIMARY,
+    }),
+    m("p.flex-row", [
+      m(CacheSizes, {
+        ...getBestResourceInfo(cache.assets, downloadStatus),
+      }),
+      m("span.spacer"),
+      m.if(!isDownloading)(CacheDateBlock, { cache }),
     ]),
   ]);
 }
@@ -268,15 +280,55 @@ function CacheDateBlock({ cache }) {
   return m("span.date-block", [m("em", m(CacheDate, { date }))]);
 }
 
-function CacheControlActionButtons({ cacheId }) {
+function CacheControlActionButtons({
+  cache,
+  isDownloading,
+  downloadStatus,
+}: {
+  cache: MapCacheListing;
+  isDownloading: boolean;
+  downloadStatus: CacheRegionProgress | null;
+}) {
+  const hasErrors = downloadStatus?.hasErrors ?? false;
+  const layers: string[] = cache.description?.layers ?? [];
+
   return m("div.ion-row", { class: "ion-padding-start" }, [
+    m.if(isDownloading)(
+      Button,
+      {
+        icon: "stop",
+        intent: "warning",
+        size: "small",
+        onClick: clickHandler(() => cancelCache(cache.id)),
+      },
+      "Cancel",
+    ),
+    m.if(!isDownloading)(
+      Button,
+      {
+        icon: "cloud-download",
+        size: "small",
+        onClick: clickHandler(() => triggerCacheDownload(cache.id, layers)),
+      },
+      "Fill tiles",
+    ),
+    m.if(!isDownloading && hasErrors)(
+      Button,
+      {
+        icon: "refresh",
+        intent: "warning",
+        size: "small",
+        onClick: clickHandler(() => restartCacheDownload(cache.id, layers)),
+      },
+      "Retry",
+    ),
     m(
       Button,
       {
         icon: "trash",
         intent: "danger",
         size: "small",
-        onClick: clickHandler(() => deleteCache(cacheId)),
+        onClick: clickHandler(() => deleteCache(cache.id)),
       },
       "Delete",
     ),
