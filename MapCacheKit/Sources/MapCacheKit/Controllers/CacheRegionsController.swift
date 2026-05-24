@@ -254,10 +254,12 @@ struct CacheRegionsController: RouteCollection {
       throw Abort(.notFound, reason: "Region not found")
     }
 
-    throw Abort(.notImplemented, reason: "Region download without style post not implemented yet")
+    // Accept optional styles in the request body. If omitted, the download
+    // will still run but will skip tile layers (useful as a no-op check).
+    let styles = (try? req.content.decode(CacheDownloadRequest.self))?.styles ?? []
 
-    //self.startRegionDownload(req.application, region: region, styles: [])
-    //return .ok
+    self.startRegionDownload(req.application, region: region, styles: styles)
+    return .accepted
   }
 
   func startRegionDownload(_ app: Application, region: MBXCacheRegion, styles: [StyleDefinition]) {
@@ -535,6 +537,12 @@ struct CacheCreationInfo: Content {
       description: desc
     )
   }
+}
+
+struct CacheDownloadRequest: Content {
+  /// Style definitions to use when filling missing tiles. Passing an empty
+  /// array (or omitting the body) results in a no-op download.
+  let styles: [StyleDefinition]
 }
 
 struct PolygonGeometry: Content {

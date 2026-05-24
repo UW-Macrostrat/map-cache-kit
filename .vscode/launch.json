@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:map-cache}/MapCacheKit",
+      "name": "Debug map-cache (MapCacheKit)",
+      "target": "map-cache",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug map-cache (MapCacheKit)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:map-cache}/MapCacheKit",
+      "name": "Release map-cache (MapCacheKit)",
+      "target": "map-cache",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release map-cache (MapCacheKit)"
+    }
+  ]
+}

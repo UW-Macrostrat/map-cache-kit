@@ -452,7 +452,7 @@ func getTilesToDownload(with app: Application, using definition: CacheRegionDefi
   }
 
   let db = try app.getDatabase()
-  return try await findAll(assets: candidateTiles, in: db)
+  return try await findAllTilesQuadtree(candidateTiles, in: db)
 }
 
 struct ExistingAssetInfo: Content {
@@ -505,9 +505,6 @@ func findAll(
       toDownload.insert(asset)
     }
   }
-  /** TODO: this is very slow as it checks individually for each tile's presence in the database. We need to speed
-   this up by grouping tile requests (perhaps using a quadtree for tiles).
-   */
 
   return RegionAssetInfo(
     needed: assets,

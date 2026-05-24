@@ -1,6 +1,6 @@
 import { atom, useAtomValue, useSetAtom } from "jotai";
 import { atomWithHash } from "jotai-location";
-import { atomWithRefresh } from "jotai/utils";
+import { atomWithRefresh, selectAtom } from "jotai/utils";
 import type { Feature, Polygon } from "geojson";
 import { bboxPolygon } from "@turf/bbox-polygon";
 import type { MapPosition } from "@macrostrat/mapbox-utils";
@@ -17,7 +17,7 @@ import {
 } from "./cache-list/types.ts";
 import { getRegionName } from "./utils.ts";
 import { geologyStyleFragment } from "./cache-list/map-style";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useReconnectableWebSocket } from "./cache-list/web-socket.ts";
 import { getDefaultStore } from "jotai";
 
@@ -252,7 +252,25 @@ const downloadProgressAtom = atom<DownloadProgressData>({});
 export function useDownloadProgress(
   regionID: number,
 ): CacheRegionProgress | null {
-  return useAtomValue(downloadProgressAtom)[regionID] ?? null;
+  // selectAtom creates a derived atom that only notifies this component when
+  // *this region's* progress changes, not when any other region updates.
+  // useMemo keeps the same atom instance stable across renders so jotai
+  // doesn't create a new subscription on every render cycle.
+  const regionProgressAtom = useMemo(
+    () => selectAtom(downloadProgressAtom, (data) => data[regionID] ?? null),
+    [regionID],
+  );
+  return useAtomValue(regionProgressAtom);
+}
+
+export function useIsDownloading(regionID: number): boolean {
+  const regionIsDownloadingAtom = useMemo(() => {
+    return selectAtom(downloadProgressAtom, (data) => {
+      const regionProgress = data[regionID]?.progress ?? 1;
+      return regionProgress < 1;
+    });
+  }, [regionID]);
+  return useAtomValue(regionIsDownloadingAtom);
 }
 
 type PartialProgress = Omit<CacheRegionProgress, "progress" | "hasErrors">;
@@ -473,6 +491,40 @@ export async function deleteCache(id: number) {
     throw new Error(`Failed to delete cache region: ${response.statusText}`);
   }
   jotaiStore.set(resetCachesAtom);
+}
+
+export async function cancelCache(id: number) {
+  const response = await fetch(`${cacheAPIBaseURL}/regions/${id}/cancel`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to cancel cache download: ${response.statusText}`);
+  }
+}
+
+export async function restartCacheDownload(id: number, layers: string[] = []) {
+  return triggerCacheDownload(id, layers);
+}
+
+/** Start (or resume) a download for an existing region, filling any missing
+ *  tiles and resources.  The caller provides the layer names that were used
+ *  when the region was originally created so that the correct style JSON can
+ *  be reconstructed and sent to the server. */
+export async function triggerCacheDownload(id: number, layers: string[]) {
+  const layerInfo: CacheLayers = {
+    basemap: layers.includes("basemap"),
+    satellite: layers.includes("satellite"),
+    bedrock: layers.includes("bedrock"),
+  };
+  const styles = await getStylesForLayers(layerInfo);
+  const response = await fetch(`${cacheAPIBaseURL}/regions/${id}/download`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ styles }),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to start tile download: ${response.statusText}`);
+  }
 }
 
 /** Helpers */
