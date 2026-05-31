@@ -23,11 +23,13 @@ struct CreateDatabaseSchema: AsyncMigration {
     } else if existingTables.count > 0 {
       let tbl = existingTables.joined(separator: ", ")
       throw RuntimeError.databaseError("Some tables already exist (\(tbl)) but the database is incompletely defined")
+    } else {
+      // Split queries by semicolon and remove empty lines
+      try await runSQL(sqlDatabase, statements: databaseSchemaSQL)
     }
 
-    // Split queries by semicolon and remove empty lines
-    try await runSQL(sqlDatabase, statements: databaseSchemaSQL)
-
+    // Build indices
+    try await runSQL(sqlDatabase, statements: buildIndicesSQL)
   }
 
   func revert(on database: any Database) async throws {
@@ -113,10 +115,15 @@ let databaseSchemaSQL = """
     tile_id INTEGER NOT NULL references tiles,
     UNIQUE (region_id, tile_id)
   );
+"""
 
-  CREATE INDEX region_tiles_tile_id on region_tiles (tile_id);
+// language=SQL
+let buildIndicesSQL = """
+  CREATE INDEX IF NOT EXISTS region_tiles_tile_id on region_tiles (tile_id);
 
-  CREATE INDEX tiles_accessed on tiles (accessed);
+  CREATE INDEX IF NOT EXISTS tiles_accessed on tiles (accessed);
 
-  CREATE INDEX tiles_url_template on tiles (url_template);
+  CREATE INDEX IF NOT EXISTS tiles_url_template on tiles (url_template);
+
+  CREATE INDEX IF NOT EXISTS tiles_spatial_index ON tiles (url_template, x, y, z);
 """
