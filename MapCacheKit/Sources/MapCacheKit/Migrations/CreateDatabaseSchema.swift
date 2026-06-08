@@ -126,36 +126,6 @@ let databaseSchemaSQL = """
   );
 """
 
-struct CreateIndicesMigration: Migration {
-  /** Create the basic database schema conforming to the original cache system. */
-  func run(on db: any SQLDatabase) async throws {
-    // language=SQL
-    let buildIndicesSQL = """
-      CREATE INDEX IF NOT EXISTS region_tiles_tile_id on region_tiles (tile_id);
-      CREATE INDEX IF NOT EXISTS tiles_accessed on tiles (accessed);
-      CREATE INDEX IF NOT EXISTS tiles_url_template on tiles (url_template);
-      CREATE INDEX IF NOT EXISTS tiles_spatial_index ON tiles (url_template, x, y, z);
-    """
-    
-    // Build indices
-    try await runSQL(db, statements: buildIndicesSQL)
-  }
-  
-  func shouldApply(on db: any SQLDatabase) async throws -> Bool {
-    let indicesToCheck = ["region_tiles_tile_id", "tiles_accessed", "tiles_url_template", "tiles_spatial_index"]
-    var shouldMigrate = false
-    for index in indicesToCheck {
-      if try await indexExists(db, indexName: index) {
-        // Index already exists, skip migration
-        continue
-      } else {
-        shouldMigrate = true
-      }
-    }
-    return shouldMigrate
-  }
-}
-
 struct CreateDataSizeColumnMigration: Migration {
   /** Create the basic database schema conforming to the original cache system. */
   
@@ -167,8 +137,7 @@ struct CreateDataSizeColumnMigration: Migration {
   
   func shouldApply(on db: any SQLDatabase) async throws -> Bool {
     // Check if the data_size column already exists in the specified table
-    let result = try await db.raw("SELECT 1 FROM pragma_table_info(\(bind: tableName)) WHERE name = 'data_size'").first()
-    return result == nil // If no result, the column doesn't exist and we should apply the migration
+    return !(try await hasColumn(db, tableName: tableName, columnName: "data_size"))
   }
   
   func run(on db: any SQLDatabase) async throws {
@@ -181,8 +150,38 @@ struct CreateDataSizeColumnMigration: Migration {
   }
 }
 
+struct CreateIndicesMigration: Migration {
+  /** Create the basic database schema conforming to the original cache system. */
+  func run(on db: any SQLDatabase) async throws {
+    // language=SQL
+    let buildIndicesSQL = """
+      CREATE INDEX IF NOT EXISTS region_tiles_tile_id on region_tiles (tile_id);
+      CREATE INDEX IF NOT EXISTS tiles_accessed on tiles (accessed);
+      CREATE INDEX IF NOT EXISTS tiles_url_template on tiles (url_template);
+      CREATE INDEX IF NOT EXISTS tiles_spatial_index ON tiles (url_template, x, y, z);
+    
+      CREATE INDEX IF NOT EXISTS region_tiles_region_id ON region_tiles(region_id, tile_id);
+      CREATE INDEX IF NOT EXISTS tiles_id_data_size ON tiles(id, data_size);
+      CREATE INDEX IF NOT EXISTS region_resources_region_id ON region_resources(region_id, resource_id);
+      CREATE INDEX IF NOT EXISTS resources_id_data_size ON resources(id, data_size);
+    """
+    
+    // Build indices
+    try await runSQL(db, statements: buildIndicesSQL)
+  }
+  
+  func shouldApply(on db: any SQLDatabase) async throws -> Bool {
+    return true
+  }
+}
+
 func indexExists(_ database: any SQLDatabase, indexName: String) async throws -> Bool {
   let result = try await database.raw("SELECT name FROM sqlite_master WHERE type='index' AND name = \(bind: indexName)").first(decodingColumn: "name", as: String.self)
+  return result != nil
+}
+
+func hasColumn(_ database: any SQLDatabase, tableName: String, columnName: String) async throws -> Bool {
+  let result = try await database.raw("SELECT 1 FROM pragma_table_info(\(bind: tableName)) WHERE name = \(bind: columnName)").first()
   return result != nil
 }
 

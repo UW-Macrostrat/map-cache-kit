@@ -115,9 +115,9 @@ public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration, co
   
   let migrations = MigrationSystem(migrations: [
     CreateDatabaseSchemaMigration(),
-    CreateIndicesMigration(),
     CreateDataSizeColumnMigration(tableName: "resources"),
-    CreateDataSizeColumnMigration(tableName: "tiles")
+    CreateDataSizeColumnMigration(tableName: "tiles"),
+    CreateIndicesMigration()
   ])
   
   if config.autoMigrate {

@@ -47,7 +47,7 @@ struct CacheRegionsController: RouteCollection {
         SELECT
           region_id,
           sum(r.data_size) resource_size,
-          count(r.data) resource_count
+          sum(CASE WHEN r.data_size > 0 THEN 1 ELSE 0 END) resource_count
         FROM region_resources rr
         JOIN resources r
           ON rr.resource_id = r.id
@@ -56,7 +56,7 @@ struct CacheRegionsController: RouteCollection {
         SELECT
           region_id,
           sum(t.data_size) tile_size,
-          count(t.data) tile_count
+          sum(CASE WHEN t.data_size > 0 THEN 1 ELSE 0 END) tile_count
         FROM region_tiles rt
         JOIN tiles t
           ON rt.tile_id = t.id
@@ -468,12 +468,12 @@ func getTotalSize(db: any SQLDatabase) async throws -> CachedAssetsInfo {
       WITH resources_count AS (
         SELECT
           sum(data_size) resource_size,
-          count(data) resource_count
+          sum(CASE WHEN data_size > 0 THEN 1 ELSE 0 END) resource_count
         FROM resources
       ), tiles_count AS (
         SELECT
           sum(data_size) tile_size,
-          count(data) tile_count
+          sum(CASE WHEN data_size > 0 THEN 1 ELSE 0 END) tile_count
         FROM tiles
       )
       SELECT
