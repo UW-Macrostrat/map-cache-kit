@@ -112,13 +112,21 @@ public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration, co
   app.logger.info("Configuring MapCacheKit with database: \(cacheDatabase.storage)")
 
   app.databases.use(DatabaseConfigurationFactory.sqlite(cacheDatabase), as: .sqlite)
-
-  //app.migrations.add(CreateTodo())
-  app.migrations.add(CreateDatabaseSchema())
+  
+  app.migrations.add(CreateDatabaseSchemaMigration())
+  app.migrations.add(CreateIndicesMigration())
+  app.migrations.add(CreateSizeColumnsMigration())
   
   if config.autoMigrate {
+    app.logger.info("Auto-migrating database")
     // Auto-migrate database if enabled
-    try await app.autoMigrate()
+    do {
+      try await app.autoMigrate()
+      app.logger.info("Database auto-migration complete")
+    } catch {
+      app.logger.error("Failed to auto-migrate database: \(error)")
+      throw error
+    }
   }
     
   // register routes

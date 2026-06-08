@@ -3,7 +3,7 @@ import FluentSQL
 import FluentSQLiteDriver
 import Foundation
 
-struct CreateDatabaseSchema: AsyncMigration {
+struct CreateDatabaseSchemaMigration: AsyncMigration {
   /** Create the basic database schema conforming to the original cache system. */
   func prepare(on database: any Database) async throws {
     guard let sqlDatabase = database as? any SQLDatabase else {
@@ -19,7 +19,6 @@ struct CreateDatabaseSchema: AsyncMigration {
 
     if existingTables.count == tablesToCheck.count {
       // All tables already exist, skip migration
-      return
     } else if existingTables.count > 0 {
       let tbl = existingTables.joined(separator: ", ")
       throw RuntimeError.databaseError("Some tables already exist (\(tbl)) but the database is incompletely defined")
@@ -27,9 +26,6 @@ struct CreateDatabaseSchema: AsyncMigration {
       // Split queries by semicolon and remove empty lines
       try await runSQL(sqlDatabase, statements: databaseSchemaSQL)
     }
-
-    // Build indices
-    try await runSQL(sqlDatabase, statements: buildIndicesSQL)
   }
 
   func revert(on database: any Database) async throws {
@@ -45,14 +41,6 @@ struct CreateDatabaseSchema: AsyncMigration {
       DROP TABLE IF EXISTS regions;
       """
     try await runSQL(sqlDatabase, statements: dropSQL)
-  }
-}
-
-func runSQL(_ database: any SQLDatabase, statements: String) async throws {
-  // Run raw SQL statements
-  let queries = statements.split(separator: ";").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-  for query in queries {
-    try await database.raw(SQLQueryString(query)).run()
   }
 }
 
@@ -117,13 +105,80 @@ let databaseSchemaSQL = """
   );
 """
 
-// language=SQL
-let buildIndicesSQL = """
-  CREATE INDEX IF NOT EXISTS region_tiles_tile_id on region_tiles (tile_id);
+struct CreateIndicesMigration: AsyncMigration {
+  /** Create the basic database schema conforming to the original cache system. */
+  func prepare(on database: any Database) async throws {
+    guard let sqlDatabase = database as? any SQLDatabase else {
+      throw RuntimeError.databaseError("Database is not an SQL database")
+    }
+    // language=SQL
+    let buildIndicesSQL = """
+      CREATE INDEX IF NOT EXISTS region_tiles_tile_id on region_tiles (tile_id);
+      CREATE INDEX IF NOT EXISTS tiles_accessed on tiles (accessed);
+      CREATE INDEX IF NOT EXISTS tiles_url_template on tiles (url_template);
+      CREATE INDEX IF NOT EXISTS tiles_spatial_index ON tiles (url_template, x, y, z);
+    """
+    
+    // Build indices
+    try await runSQL(sqlDatabase, statements: buildIndicesSQL)
+  }
+  
+  func revert(on database: any Database) async throws {
+    guard let sqlDatabase = database as? any SQLDatabase else {
+      throw RuntimeError.databaseError("Database is not an SQL database")
+    }
+    // language=SQL
+    let dropSQL = """
+      DROP INDEX IF EXISTS region_tiles_tile_id;
+      DROP INDEX IF EXISTS tiles_accessed;
+      DROP INDEX IF EXISTS tiles_url_template;
+      DROP INDEX IF EXISTS tiles_spatial_index;
+      """
+    try await runSQL(sqlDatabase, statements: dropSQL)
+  }
+}
 
-  CREATE INDEX IF NOT EXISTS tiles_accessed on tiles (accessed);
+struct CreateSizeColumnsMigration: AsyncMigration {
+  /** Create the basic database schema conforming to the original cache system. */
+  func prepare(on database: any Database) async throws {
+    guard let sqlDatabase = database as? any SQLDatabase else {
+      throw RuntimeError.databaseError("Database is not an SQL database")
+    }
+    
+    for table in ["resources", "tiles"] {
+      if try await sqlDatabase.raw("SELECT 1 FROM pragma_table_info(\(bind: table)) WHERE name = 'data_size'").first() != nil {
+        // Column already exists, skip
+        continue
+      }
 
-  CREATE INDEX IF NOT EXISTS tiles_url_template on tiles (url_template);
+      // If the query fails, we assume the column doesn't exist and proceed with migration
+      // language=SQL
+      try await runSQL(sqlDatabase, statements: "ALTER TABLE \(table) ADD COLUMN data_size INTEGER NOT NULL DEFAULT 0")
+      try await runSQL(sqlDatabase, statements: "UPDATE \(table) SET data_size = coalesce(length(data), 0)")
+    }
+  }
+  
+  func revert(on database: any Database) async throws {
+    guard let sqlDatabase = database as? any SQLDatabase else {
+      throw RuntimeError.databaseError("Database is not an SQL database")
+    }
+    // language=SQL
+    try await runSQL(sqlDatabase, statements: """
+      DROP COLUMN IF EXISTS data_size FROM tiles;
+      DROP COLUMN IF EXISTS data_size FROM resources;
+      """)
+  }
+}
 
-  CREATE INDEX IF NOT EXISTS tiles_spatial_index ON tiles (url_template, x, y, z);
-"""
+func indexExists(_ database: any SQLDatabase, indexName: String) async throws -> Bool {
+  let result = try await database.raw("SELECT name FROM sqlite_master WHERE type='index' AND name = \(bind: indexName)").first(decodingColumn: "name", as: String.self)
+  return result != nil
+}
+
+func runSQL(_ database: any SQLDatabase, statements: String) async throws {
+  // Run raw SQL statements
+  let queries = statements.split(separator: ";").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+  for query in queries {
+    try await database.raw(SQLQueryString(query)).run()
+  }
+}

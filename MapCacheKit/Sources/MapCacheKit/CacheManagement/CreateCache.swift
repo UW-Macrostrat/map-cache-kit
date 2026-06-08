@@ -523,7 +523,7 @@ func find(
     sql = """
     SELECT
       id,
-      length(data) as size
+      data_size size
     FROM resources
     WHERE url = \(bind: asset.urlTemplate)
       AND kind = \(bind: kind.rawValue)
@@ -533,7 +533,7 @@ func find(
     sql = """
       SELECT
         id,
-        coalesce(length(data), 0) size
+        data_size size
       FROM tiles
       WHERE x = \(bind: tile.x)
         AND y = \(bind: tile.y)

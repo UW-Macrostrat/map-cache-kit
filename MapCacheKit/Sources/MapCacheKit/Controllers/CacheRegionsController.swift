@@ -46,7 +46,7 @@ struct CacheRegionsController: RouteCollection {
       WITH resources_count AS (
         SELECT
           region_id,
-          sum(length(r.data)) resource_size,
+          sum(r.data_size) resource_size,
           count(r.data) resource_count
         FROM region_resources rr
         JOIN resources r
@@ -55,7 +55,7 @@ struct CacheRegionsController: RouteCollection {
       ), tiles_count AS (
         SELECT
           region_id,
-          sum(length(t.data)) tile_size,
+          sum(t.data_size) tile_size,
           count(t.data) tile_count
         FROM region_tiles rt
         JOIN tiles t
@@ -402,7 +402,7 @@ func deleteUnreferencedAssets(db: any SQLDatabase, log: Logger) async throws {
     DELETE FROM resources WHERE id NOT IN (
       SELECT resource_id FROM region_resources
     )
-    RETURNING id, length(data) size
+    RETURNING id, data_size size
   """
   let deletedResources = try await db.raw(sql)
     .all(decoding: DeletedAsset.self)
@@ -412,7 +412,7 @@ func deleteUnreferencedAssets(db: any SQLDatabase, log: Logger) async throws {
     DELETE FROM tiles WHERE id NOT IN (
       SELECT tile_id FROM region_tiles
     )
-    RETURNING id, length(data) size
+    RETURNING id, data_size size
     """
   ).all(decoding: DeletedAsset.self)
 
@@ -467,12 +467,12 @@ func getTotalSize(db: any SQLDatabase) async throws -> CachedAssetsInfo {
   let sql: SQLQueryString = """
       WITH resources_count AS (
         SELECT
-          sum(length(data)) resource_size,
+          sum(data_size) resource_size,
           count(data) resource_count
         FROM resources
       ), tiles_count AS (
         SELECT
-          sum(length(data)) tile_size,
+          sum(data_size) tile_size,
           count(data) tile_count
         FROM tiles
       )

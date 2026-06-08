@@ -22,7 +22,7 @@ private struct TileXYZ: Hashable {
 
 private struct SubtreeTileRow: Decodable {
   let x, y, z, id: Int
-  let size: Int64
+  let dataSize: Int64
 }
 
 // MARK: - Quadtree tile search
@@ -120,7 +120,7 @@ func findAllTilesQuadtree(
       // This is still far cheaper than issuing one query per tile.
       let rows = try await db.raw(
         """
-        SELECT x, y, z, id, coalesce(length(data), 0) AS size
+        SELECT x, y, z, id, data_size
         FROM tiles
         WHERE url_template = \(bind: urlTemplate)
           AND z BETWEEN \(bind: minZ) AND \(bind: maxZ)
@@ -136,7 +136,7 @@ func findAllTilesQuadtree(
           // Insert only the first ID encountered for a given tile
           // (multiple pixel_ratio variants map to the same candidate).
           cachedIDs.insert(row.id)
-          totalSize += row.size
+          totalSize += row.dataSize
         }
       }
     }
