@@ -113,20 +113,15 @@ public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration, co
 
   app.databases.use(DatabaseConfigurationFactory.sqlite(cacheDatabase), as: .sqlite)
   
-  app.migrations.add(CreateDatabaseSchemaMigration())
-  app.migrations.add(CreateIndicesMigration())
-  app.migrations.add(CreateSizeColumnsMigration())
+  let migrations = MigrationSystem(migrations: [
+    CreateDatabaseSchemaMigration(),
+    CreateIndicesMigration(),
+    CreateDataSizeColumnMigration(tableName: "resources"),
+    CreateDataSizeColumnMigration(tableName: "tiles")
+  ])
   
   if config.autoMigrate {
-    app.logger.info("Auto-migrating database")
-    // Auto-migrate database if enabled
-    do {
-      try await app.autoMigrate()
-      app.logger.info("Database auto-migration complete")
-    } catch {
-      app.logger.error("Failed to auto-migrate database: \(error)")
-      throw error
-    }
+    try await migrations.run(on: try app.getDatabase(), logger: app.logger)
   }
     
   // register routes

@@ -3,44 +3,67 @@ import FluentSQL
 import FluentSQLiteDriver
 import Foundation
 
-struct CreateDatabaseSchemaMigration: AsyncMigration {
-  /** Create the basic database schema conforming to the original cache system. */
-  func prepare(on database: any Database) async throws {
-    guard let sqlDatabase = database as? any SQLDatabase else {
-      throw RuntimeError.databaseError("Database is not an SQL database")
+protocol Migration {
+  func isApplied(on db: any SQLDatabase) async throws -> Bool
+  func shouldApply(on db: any SQLDatabase) async throws -> Bool
+  func run(on db: any SQLDatabase) async throws
+  var name: String { get }
+}
+
+extension Migration {
+  func isApplied(on database: any SQLDatabase) async throws -> Bool {
+    let shouldApply = try await self.shouldApply(on: database)
+    return !shouldApply
+  }
+  
+  // Get the name from the struct name by default
+  var name: String {
+    String(describing: Self.self)
+  }
+}
+
+class MigrationSystem {
+  private var migrations: [Migration] = []
+  
+  init(migrations: [Migration]) {
+    self.migrations = migrations
+  }
+  
+  func run(on database: any SQLDatabase, logger: Logger? = nil) async throws {
+    logger?.info("Running database migrations")
+    for migration in migrations {
+      if try await migration.shouldApply(on: database) {
+        logger?.info("Applying migration: \(migration.name)")
+        try await migration.run(on: database)
+        logger?.info("Successfully applied migration: \(migration.name)")
+      } else {
+        logger?.info("Skipping migration \(migration.name) as it is already applied")
+      }
     }
-
-    // Check if tables already exist, if so, skip migration
+  }
+}
+  
+struct CreateDatabaseSchemaMigration: Migration {
+  /** Create the basic database schema conforming to the original cache system. */
+  
+  func shouldApply(on db: any SQLDatabase) async throws -> Bool {
     let tablesToCheck = ["regions", "resources", "tiles", "region_resources"]
-
-    let allTables = try await sqlDatabase.raw("SELECT name FROM sqlite_master WHERE type='table'").all(decodingColumn: "name", as: String.self)
-
+    
+    let allTables = try await db.raw("SELECT name FROM sqlite_master WHERE type='table'").all(decodingColumn: "name", as: String.self)
+    
     let existingTables = allTables.filter { tablesToCheck.contains($0) }
-
+    
     if existingTables.count == tablesToCheck.count {
       // All tables already exist, skip migration
     } else if existingTables.count > 0 {
       let tbl = existingTables.joined(separator: ", ")
       throw RuntimeError.databaseError("Some tables already exist (\(tbl)) but the database is incompletely defined")
-    } else {
-      // Split queries by semicolon and remove empty lines
-      try await runSQL(sqlDatabase, statements: databaseSchemaSQL)
     }
+    return existingTables.count == 0
   }
-
-  func revert(on database: any Database) async throws {
-    guard let sqlDatabase = database as? any SQLDatabase else {
-      throw RuntimeError.databaseError("Database is not an SQL database")
-    }
-    // language=SQL
-    let dropSQL = """
-      DROP TABLE IF EXISTS region_tiles;
-      DROP TABLE IF EXISTS tiles;
-      DROP TABLE IF EXISTS region_resources;
-      DROP TABLE IF EXISTS resources;
-      DROP TABLE IF EXISTS regions;
-      """
-    try await runSQL(sqlDatabase, statements: dropSQL)
+  
+  func run(on db: any SQLDatabase) async throws {
+    try await runSQL(db, statements: databaseSchemaSQL)
   }
 }
 
@@ -76,9 +99,7 @@ let databaseSchemaSQL = """
   );
 
   CREATE INDEX region_resources_resource_id on region_resources (resource_id);
-
   CREATE INDEX resources_accessed on resources (accessed);
-
   CREATE INDEX resources_url on resources (url);
 
   CREATE TABLE tiles (
@@ -105,12 +126,9 @@ let databaseSchemaSQL = """
   );
 """
 
-struct CreateIndicesMigration: AsyncMigration {
+struct CreateIndicesMigration: Migration {
   /** Create the basic database schema conforming to the original cache system. */
-  func prepare(on database: any Database) async throws {
-    guard let sqlDatabase = database as? any SQLDatabase else {
-      throw RuntimeError.databaseError("Database is not an SQL database")
-    }
+  func run(on db: any SQLDatabase) async throws {
     // language=SQL
     let buildIndicesSQL = """
       CREATE INDEX IF NOT EXISTS region_tiles_tile_id on region_tiles (tile_id);
@@ -120,53 +138,46 @@ struct CreateIndicesMigration: AsyncMigration {
     """
     
     // Build indices
-    try await runSQL(sqlDatabase, statements: buildIndicesSQL)
+    try await runSQL(db, statements: buildIndicesSQL)
   }
   
-  func revert(on database: any Database) async throws {
-    guard let sqlDatabase = database as? any SQLDatabase else {
-      throw RuntimeError.databaseError("Database is not an SQL database")
+  func shouldApply(on db: any SQLDatabase) async throws -> Bool {
+    let indicesToCheck = ["region_tiles_tile_id", "tiles_accessed", "tiles_url_template", "tiles_spatial_index"]
+    var shouldMigrate = false
+    for index in indicesToCheck {
+      if try await indexExists(db, indexName: index) {
+        // Index already exists, skip migration
+        continue
+      } else {
+        shouldMigrate = true
+      }
     }
-    // language=SQL
-    let dropSQL = """
-      DROP INDEX IF EXISTS region_tiles_tile_id;
-      DROP INDEX IF EXISTS tiles_accessed;
-      DROP INDEX IF EXISTS tiles_url_template;
-      DROP INDEX IF EXISTS tiles_spatial_index;
-      """
-    try await runSQL(sqlDatabase, statements: dropSQL)
+    return shouldMigrate
   }
 }
 
-struct CreateSizeColumnsMigration: AsyncMigration {
+struct CreateDataSizeColumnMigration: Migration {
   /** Create the basic database schema conforming to the original cache system. */
-  func prepare(on database: any Database) async throws {
-    guard let sqlDatabase = database as? any SQLDatabase else {
-      throw RuntimeError.databaseError("Database is not an SQL database")
-    }
-    
-    for table in ["resources", "tiles"] {
-      if try await sqlDatabase.raw("SELECT 1 FROM pragma_table_info(\(bind: table)) WHERE name = 'data_size'").first() != nil {
-        // Column already exists, skip
-        continue
-      }
-
-      // If the query fails, we assume the column doesn't exist and proceed with migration
-      // language=SQL
-      try await runSQL(sqlDatabase, statements: "ALTER TABLE \(table) ADD COLUMN data_size INTEGER NOT NULL DEFAULT 0")
-      try await runSQL(sqlDatabase, statements: "UPDATE \(table) SET data_size = coalesce(length(data), 0)")
-    }
+  
+  let tableName: String
+  
+  init(tableName: String) {
+    self.tableName = tableName
   }
   
-  func revert(on database: any Database) async throws {
-    guard let sqlDatabase = database as? any SQLDatabase else {
-      throw RuntimeError.databaseError("Database is not an SQL database")
-    }
-    // language=SQL
-    try await runSQL(sqlDatabase, statements: """
-      DROP COLUMN IF EXISTS data_size FROM tiles;
-      DROP COLUMN IF EXISTS data_size FROM resources;
-      """)
+  func shouldApply(on db: any SQLDatabase) async throws -> Bool {
+    // Check if the data_size column already exists in the specified table
+    let result = try await db.raw("SELECT 1 FROM pragma_table_info(\(bind: tableName)) WHERE name = 'data_size'").first()
+    return result == nil // If no result, the column doesn't exist and we should apply the migration
+  }
+  
+  func run(on db: any SQLDatabase) async throws {
+    try await runSQL(db, statements: "ALTER TABLE \(tableName) ADD COLUMN data_size INTEGER NOT NULL DEFAULT 0")
+    try await runSQL(db, statements: "UPDATE \(tableName) SET data_size = coalesce(length(data), 0)")
+  }
+  
+  var name: String {
+    return "Create data_size column - \(tableName)"
   }
 }
 
