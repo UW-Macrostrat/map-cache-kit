@@ -22,7 +22,7 @@ private struct TileXYZ: Hashable {
 
 private struct SubtreeTileRow: Decodable {
   let x, y, z, id: Int
-  let dataSize: Int64
+  let data_size: Int64
 }
 
 // MARK: - Quadtree tile search
@@ -136,7 +136,7 @@ func findAllTilesQuadtree(
           // Insert only the first ID encountered for a given tile
           // (multiple pixel_ratio variants map to the same candidate).
           cachedIDs.insert(row.id)
-          totalSize += row.dataSize
+          totalSize += row.data_size
         }
       }
     }

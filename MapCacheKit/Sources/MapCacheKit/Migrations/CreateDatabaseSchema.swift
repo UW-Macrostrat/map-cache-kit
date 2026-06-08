@@ -23,9 +23,9 @@ extension Migration {
 }
 
 class MigrationSystem {
-  private var migrations: [Migration] = []
+  private var migrations: [any Migration] = []
   
-  init(migrations: [Migration]) {
+  init(migrations: [any Migration]) {
     self.migrations = migrations
   }
   

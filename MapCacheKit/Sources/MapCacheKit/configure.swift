@@ -3,6 +3,7 @@ import FluentSQLiteDriver
 import NIOSSL
 import Vapor
 import NIOCore
+import FluentSQL
 
 public struct AppConfig: Sendable {
   public let mapboxAPIToken: String?
@@ -64,6 +65,7 @@ struct DownloadTaskStoreKey: StorageKey {
   typealias Value = [Int: Task<Void, any Error>]
 }
 
+
 extension Application {
 
   public var config: AppConfig {
@@ -106,11 +108,16 @@ extension Application {
 public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration, config: AppConfig) async throws {
   // uncomment to serve files from /Public folder
   // app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
-  //  
+  //
   await app.storage.setWithAsyncShutdown(ConfigurationKey.self, to: config)
-
+ 
+  let socketManager = WebSocketConnectionManager()
+  let cacheCreationRoutes = CacheRegionsController(connectionManager: socketManager)
+  
+  app.lifecycle.use(CacheLifcycleManager(connectionManager: socketManager))
+  
   app.logger.info("Configuring MapCacheKit with database: \(cacheDatabase.storage)")
-
+  
   app.databases.use(DatabaseConfigurationFactory.sqlite(cacheDatabase), as: .sqlite)
   
   let migrations = MigrationSystem(migrations: [
@@ -123,7 +130,22 @@ public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration, co
   if config.autoMigrate {
     try await migrations.run(on: try app.getDatabase(), logger: app.logger)
   }
+  
+  // Register routes
+  app.get { req async in
+    return CacheSystemInfo(name: "Rockd cache system", version: "1.1.0")
+  }
+  app.routes.defaultMaxBodySize = "10mb"
+  
+  try app.register(collection: cacheCreationRoutes)
+  try app.register(collection: CachedTileController())
+  
+  let cfg = CORSMiddleware.Configuration(
+    allowedOrigin: .all,
+    allowedMethods: [.GET, .POST, .PUT, .OPTIONS, .DELETE, .PATCH],
+    allowedHeaders: [.accept, .authorization, .contentType, .origin, .xRequestedWith, .userAgent, .accessControlAllowOrigin, "x-cache-domain", "x-cache", "cache-control, content-encoding"],
     
-  // register routes
-  try routes(app)
+  )
+  
+  app.middleware.use(CORSMiddleware(configuration: cfg))
 }

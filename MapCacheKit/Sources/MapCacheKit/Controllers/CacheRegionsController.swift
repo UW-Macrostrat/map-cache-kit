@@ -16,12 +16,16 @@ import SwiftTileMatrix
 
 struct CacheRegionsController: RouteCollection {
 
-  let connectionManager = WebSocketConnectionManager()
+  let connectionManager: WebSocketConnectionManager
   var taskStore: [Int: Task<Void, any Error>] = [:]
+  
+  init(connectionManager: WebSocketConnectionManager) {
+    self.connectionManager = connectionManager
+  }
 
   func boot(routes: any RoutesBuilder) throws {
     let regions = routes.grouped("regions")
-
+    
     regions.get(use: self.index)
     regions.post(use: self.create)
     regions.webSocket("events") { req, ws async in
@@ -430,25 +434,26 @@ actor WebSocketConnectionManager {
 
   func add(_ ws: WebSocket) {
     connections.append(ws)
-
-    ws.onClose.whenComplete { res in
-      Task {
-        await self.remove(ws)
-      }
-    }
-  }
-
-  func remove(_ ws: WebSocket) {
-    connections.removeAll(where: { $0 === ws })
   }
 
   func sendToAll(_ message: String) async throws {
+    connections.removeAll(where: { $0.isClosed }) // Clean up closed connections first
     for ws in connections {
-      if ws.isClosed {
-        continue // Skip closed connections
-      }
       try await ws.send(message)
     }
+  }
+  
+  func closeAllConnections() async throws {
+    // Concurrently close all active connections
+    await withThrowingTaskGroup(of: Void.self) { group in
+      connections.removeAll(where: { $0.isClosed }) // Clean up closed connections first
+      for ws in connections {
+        group.addTask {
+          try await ws.close()
+        }
+      }
+    }
+    connections.removeAll(where: { $0.isClosed }) // Final cleanup after closing
   }
 }
 
