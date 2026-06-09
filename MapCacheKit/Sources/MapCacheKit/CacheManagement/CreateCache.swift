@@ -108,26 +108,56 @@ enum CacheDownloadStatus: String, Codable {
   case cancelled = "cancelled"
 }
 
+struct AssetsStatus: Content {
+  let count: Int
+  let size: Int64
+}
+
+struct CacheRegionAssetInfo: Content {
+  let initial: AssetsStatus
+  let downloaded: AssetsStatus
+  let total: AssetsStatus
+  let failedCount: Int
+  let expectedCount: Int
+}
+
 struct CacheRegionProgress: Content {
   let regionID: Int
-  let resourcesDownloaded: Int
-  let resourcesInitiallyDownloaded: Int
-  let resourcesFailed: Int
-  let resourcesTotal: Int
-  let resourcesDownloadedSize: Int64
-  let tilesDownloaded: Int
-  let tilesInitiallyDownloaded: Int
-  let tilesTotal: Int
-  let tilesFailed: Int
-  let tilesDownloadedSize: Int64
+  let resources: CacheRegionAssetInfo
+  let tiles: CacheRegionAssetInfo
   let isFinished: Bool
   let lastErrorMessage: String?
   let status: CacheDownloadStatus
+  let progress: Double
+  let hasErrors: Bool
 
-  var progress: Double {
-    let total = Double(resourcesTotal + tilesTotal)
-    guard total > 0 else { return 1.0 }
-    return Double(resourcesDownloaded + tilesDownloaded + resourcesFailed + tilesFailed) / total
+  init(
+    regionID: Int,
+    resources: CacheRegionAssetInfo,
+    tiles: CacheRegionAssetInfo,
+    isFinished: Bool,
+    lastErrorMessage: String?,
+    status: CacheDownloadStatus
+  ) {
+    self.regionID = regionID
+    self.resources = resources
+    self.tiles = tiles
+    self.isFinished = isFinished
+    self.lastErrorMessage = lastErrorMessage
+    self.status = status
+
+    // Create some computed properties for convenience.
+    // Note: these aren't implemented as getters because these are not included in
+    // automated conformance.
+    let expectedCount = Double(resources.expectedCount + tiles.expectedCount)
+    if expectedCount > 0 {
+      self.progress = Double(
+        resources.downloaded.count + tiles.downloaded.count + resources.failedCount + tiles.failedCount
+      ) / expectedCount
+    } else {
+      self.progress = 1.0
+    }
+    self.hasErrors = lastErrorMessage != nil
   }
 }
 
@@ -141,19 +171,19 @@ func downloadRegionAssets(
 
   // Get the assets to download
   let assets = try await getRegionAssets(with: app, using: definition, options: options)
-  
+
   app.logger.debug("Computed region assets")
-  
+
   let db = try app.getDatabase()
 
-  app.logger.debug("Linking \(assets.tiles.alreadyDownloaded.count) tiles to region")
-  
+  app.logger.info("Linking \(assets.tiles.alreadyDownloaded.count) already downloaded tiles to region")
+
   for tile in assets.tiles.alreadyDownloaded {
     try await insertLink(db, regionID: regionID, tileID: tile)
   }
-  
-  app.logger.debug("Linking \(assets.resources.alreadyDownloaded.count) resources to region")
-  
+
+  app.logger.info("Linking \(assets.resources.alreadyDownloaded.count) already downloaded resources to region")
+
   for resource in assets.resources.alreadyDownloaded {
     try await insertLink(db, regionID: regionID, resourceID: resource)
   }
@@ -198,32 +228,45 @@ func downloadRegionAssets(
       }
     }
   }
-  
+
   app.logger.debug("Created \(downloadTasks.count) download tasks")
 
   // Download tiles
   var downloadedTiles = 0
   var downloadedTilesSize: Int64 = 0
   var failedTiles = 0
-  let totalTiles = assets.tiles.toDownload.count
+  let totalTiles = assets.tiles.alreadyDownloaded.count + assets.resources.toDownload.count
   // Download resources
   var downloadedResources = 0
   var downloadedResourcesSize: Int64 = 0
   var failedResources = 0
-  let totalResources = assets.resources.toDownload.count
+  let totalResources = assets.resources.alreadyDownloaded.count + assets.resources.toDownload.count
 
   let initialProgress = CacheRegionProgress(
     regionID: regionID,
-    resourcesDownloaded: 0,
-    resourcesInitiallyDownloaded: assets.resources.alreadyDownloaded.count,
-    resourcesFailed: 0,
-    resourcesTotal: totalResources,
-    resourcesDownloadedSize: 0,
-    tilesDownloaded: 0,
-    tilesInitiallyDownloaded: assets.tiles.alreadyDownloaded.count,
-    tilesTotal: totalTiles,
-    tilesFailed: 0,
-    tilesDownloadedSize: 0,
+    resources: CacheRegionAssetInfo(
+      initial: AssetsStatus(
+        count: assets.resources.alreadyDownloaded.count,
+        size: assets.resources.totalSizeDownloaded
+      ),
+      downloaded: AssetsStatus(count: 0, size: 0),
+      total: AssetsStatus(count: totalResources, size: assets.resources.totalSizeDownloaded),
+      failedCount: 0,
+      expectedCount: assets.resources.toDownload.count
+    ),
+    tiles: CacheRegionAssetInfo(
+      initial: AssetsStatus(
+        count: assets.tiles.alreadyDownloaded.count,
+        size: assets.tiles.totalSizeDownloaded
+      ),
+      downloaded: AssetsStatus(count: 0, size: 0),
+      total: AssetsStatus(
+        count: totalTiles,
+        size: assets.tiles.totalSizeDownloaded
+      ),
+      failedCount: 0,
+      expectedCount: assets.tiles.toDownload.count
+    ),
     isFinished: false,
     lastErrorMessage: nil,
     status: .pending
@@ -232,12 +275,13 @@ func downloadRegionAssets(
   try await onProgress(initialProgress)
 
   var lastVal = initialProgress
+  var status: CacheDownloadStatus = .pending
 
   return try await withThrowingTaskGroup(of: DownloadResult.self) { taskGroup in
     let maxConcurrent = (try? app.config.maxConcurrentHTTPConnections) ?? 4
     var tasksInFlight = 0
     var taskIterator = downloadTasks.makeIterator()
-    
+
     // Seed the group up to maxConcurrent
     while tasksInFlight < maxConcurrent, let task = taskIterator.next() {
       taskGroup.addTask(operation: task)
@@ -246,15 +290,14 @@ func downloadRegionAssets(
 
     for try await result in taskGroup {
       tasksInFlight -= 1
-      
+
       // Refill one slot for each completed task
       if let next = taskIterator.next() {
         taskGroup.addTask(operation: next)
         tasksInFlight += 1
       }
-      
+
       let errorMessage: String?
-      var status: CacheDownloadStatus = .pending
       switch result.result {
       case .success(let dataSize):
         switch result.request.type {
@@ -279,31 +322,42 @@ func downloadRegionAssets(
           status = .cancelled
         }
       }
-      
-      let totalCompleted = downloadedResources + downloadedTiles + failedResources + failedTiles
-      
-      
 
-      if taskGroup.isEmpty && status != .cancelled {
-        status = .complete
-      }
+      let totalCompleted = downloadedResources + downloadedTiles + failedResources + failedTiles
+
       let val  = CacheRegionProgress(
         regionID: regionID,
-        resourcesDownloaded: downloadedResources,
-        resourcesInitiallyDownloaded: assets.resources.alreadyDownloaded.count,
-        resourcesFailed: failedResources,
-        resourcesTotal: totalResources,
-        resourcesDownloadedSize: downloadedResourcesSize,
-        tilesDownloaded: downloadedTiles,
-        tilesInitiallyDownloaded: assets.tiles.alreadyDownloaded.count,
-        tilesTotal: totalTiles,
-        tilesFailed: failedTiles,
-        tilesDownloadedSize: downloadedTilesSize,
+        resources: CacheRegionAssetInfo(
+          initial: AssetsStatus(
+            count: assets.resources.alreadyDownloaded.count,
+            size: assets.resources.totalSizeDownloaded
+          ),
+          downloaded: AssetsStatus(count: downloadedResources, size: downloadedResourcesSize),
+          total: AssetsStatus(
+            count: totalResources,
+            size: assets.resources.totalSizeDownloaded + downloadedResourcesSize
+          ),
+          failedCount: failedResources,
+          expectedCount: assets.resources.toDownload.count
+        ),
+        tiles: CacheRegionAssetInfo(
+          initial: AssetsStatus(
+            count: assets.tiles.alreadyDownloaded.count,
+            size: assets.tiles.totalSizeDownloaded
+          ),
+          downloaded: AssetsStatus(count: downloadedTiles, size: downloadedTilesSize),
+          total: AssetsStatus(
+            count: totalTiles,
+            size: assets.tiles.totalSizeDownloaded + downloadedTilesSize
+          ),
+          failedCount: failedTiles,
+          expectedCount: assets.tiles.toDownload.count
+        ),
         isFinished: taskGroup.isEmpty,
         lastErrorMessage: errorMessage,
         status: status
       )
-      
+
       if (totalCompleted % 100 == 0) {
         app.logger.debug("""
           Download progress: \(totalCompleted) / \(totalTiles + totalResources) (tiles: \(downloadedTiles)/\(totalTiles), resources: \(downloadedResources)/\(totalResources), failed tiles: \(failedTiles), failed resources: \(failedResources))
@@ -311,13 +365,8 @@ func downloadRegionAssets(
       }
 
       lastVal = val
-      do {
-        try await onProgress(val)
-      } catch {
-        // Log but continue — a broken progress channel
-        // shouldn't abort the download
-        app.logger.warning("Progress callback failed: \(error)")
-      }
+
+      try await onProgress(val)
 
       if status == .cancelled {
         taskGroup.cancelAll()
@@ -325,17 +374,31 @@ func downloadRegionAssets(
         break
       }
     }
-    
-    app.logger.debug("Finished download with status \(lastVal.status.rawValue)")
-    
+
+    if taskGroup.isEmpty && status != .cancelled {
+      status = .complete
+    }
+
+    app.logger.info("Finished download with status \(status.rawValue)")
+
+    let finalResult = CacheRegionProgress(
+      regionID: regionID,
+      resources: lastVal.resources,
+      tiles: lastVal.tiles,
+      isFinished: true,
+      lastErrorMessage: lastVal.lastErrorMessage,
+      status: status
+    )
+
+    try await onProgress(finalResult)
+
     for try await _ in taskGroup {
       // No-op, just draining remaining results after cancellation
     }
-    
-    return lastVal
+
+    return finalResult
   }
 }
-
 
 func getData(_ app: Application, url: URI) async throws -> Data? {
   let res = try await downloadFile(with: app, url: url)
@@ -523,7 +586,7 @@ func find(
     sql = """
     SELECT
       id,
-      length(data) as size
+      data_size size
     FROM resources
     WHERE url = \(bind: asset.urlTemplate)
       AND kind = \(bind: kind.rawValue)
@@ -533,7 +596,7 @@ func find(
     sql = """
       SELECT
         id,
-        coalesce(length(data), 0) size
+        data_size size
       FROM tiles
       WHERE x = \(bind: tile.x)
         AND y = \(bind: tile.y)

@@ -80,18 +80,23 @@ export interface CacheData {
   maxNumberOfRegions: number;
 }
 
+export interface AssetsStatus {
+  count: number;
+  size: number;
+}
+
+export interface CacheRegionAssetInfo {
+  initial: AssetsStatus;
+  downloaded: AssetsStatus;
+  total: AssetsStatus;
+  failedCount: number;
+  expectedCount: number;
+}
+
 export interface CacheRegionProgress {
   regionID: number;
-  resourcesDownloaded: number;
-  resourcesDownloadedSize: number;
-  resourcesInitiallyDownloaded: number; // Total resources that were initially downloaded
-  resourcesFailed: number;
-  resourcesTotal: number;
-  tilesDownloaded: number;
-  tilesDownloadedSize: number;
-  tilesInitiallyDownloaded: number; // Total tiles that were initially downloaded
-  tilesTotal: number;
-  tilesFailed: number;
+  resources: CacheRegionAssetInfo;
+  tiles: CacheRegionAssetInfo;
   isFinished: boolean;
   progress: number; // A value between 0 and 1 representing the overall progress
   lastErrorMessage?: string; // Optional error message if the download failed

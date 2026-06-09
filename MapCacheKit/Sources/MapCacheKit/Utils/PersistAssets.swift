@@ -28,6 +28,7 @@ func persistTile(
     // Convert Data to ByteBuffer
     data1 = ByteBuffer(data: data)
   }
+  let dataSize = data?.count ?? 0
 
   //TODO: add unique constraints
 
@@ -36,7 +37,10 @@ func persistTile(
   logger.debug("Persisting tile at z:\(tile.z) x:\(tile.x) y:\(tile.y), (pixel ratio \(ratio), compressed: \(compressed))")
 
   let tileInsert: SQLQueryString = """
-    INSERT INTO tiles (x, y, z, url_template, pixel_ratio, data, compressed, accessed)
+    INSERT INTO tiles (
+      x, y, z, url_template, pixel_ratio,
+      data, data_size, compressed, accessed
+    )
     VALUES (
       \(bind: tile.x),
       \(bind: tile.y),
@@ -44,6 +48,7 @@ func persistTile(
       \(bind: urlTemplate),
       \(bind: ratio),
       \(bind: data1),
+      \(bind: dataSize),
       \(bind: compressed ? 1 : 0),
       \(bind: Date().timeIntervalSince1970)
     )
@@ -68,19 +73,22 @@ func persistResource(
 ) async throws {
   let compressed = compressionAlgorithm(for: data) != nil
   let data1 = ByteBuffer(data: data)
+  let dataSize = data.count
 
   logger.debug("Persisting resource at url: \(url) (kind: \(kind), compressed: \(compressed))")
   let resourceInsert: SQLQueryString = """
-    INSERT INTO resources (url, data, compressed, kind, accessed)
+    INSERT INTO resources (url, data, data_size, compressed, kind, accessed)
     VALUES (
       \(bind: url),
       \(bind: data1),
+      \(bind: dataSize),
       \(bind: compressed ? 1 : 0),
       \(bind: kind.rawValue),
       \(bind: Date().timeIntervalSince1970)
     )
     ON CONFLICT (url) DO UPDATE SET
       data = excluded.data,
+      data_size = excluded.data_size,
       compressed = excluded.compressed,
       kind = excluded.kind,
       accessed = excluded.accessed

@@ -22,11 +22,9 @@ fileprivate func withApp(cacheDatabase: SQLiteConfiguration, _ test: (Applicatio
     )
     // Configure the app with an in-memory SQLite database
     try await configure(app, cacheDatabase: cacheDatabase, config: cfg)
-    try await app.autoMigrate()
+    try await app.migrate()
     try await test(app)
-    try await app.autoRevert()
   } catch {
-    try? await app.autoRevert()
     try await app.asyncShutdown()
     throw error
   }

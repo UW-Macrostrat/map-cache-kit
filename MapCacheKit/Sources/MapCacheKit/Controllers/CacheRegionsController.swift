@@ -16,12 +16,16 @@ import SwiftTileMatrix
 
 struct CacheRegionsController: RouteCollection {
 
-  let connectionManager = WebSocketConnectionManager()
+  let connectionManager: WebSocketConnectionManager
   var taskStore: [Int: Task<Void, any Error>] = [:]
+  
+  init(connectionManager: WebSocketConnectionManager) {
+    self.connectionManager = connectionManager
+  }
 
   func boot(routes: any RoutesBuilder) throws {
     let regions = routes.grouped("regions")
-
+    
     regions.get(use: self.index)
     regions.post(use: self.create)
     regions.webSocket("events") { req, ws async in
@@ -43,38 +47,15 @@ struct CacheRegionsController: RouteCollection {
   func index(req: Request) async throws -> CacheRegionsInfo {
     // Get a list of regions
     let sql: SQLQueryString = """
-      WITH resources_count AS (
-        SELECT
-          region_id,
-          sum(length(r.data)) resource_size,
-          count(r.data) resource_count
-        FROM region_resources rr
-        JOIN resources r
-          ON rr.resource_id = r.id
-        GROUP BY rr.region_id
-      ), tiles_count AS (
-        SELECT
-          region_id,
-          sum(length(t.data)) tile_size,
-          count(t.data) tile_count
-        FROM region_tiles rt
-        JOIN tiles t
-          ON rt.tile_id = t.id
-        GROUP BY rt.region_id
-      )
       SELECT
         r.id,
         r.definition,
         r.description,
-        coalesce(rc.resource_size, 0) resource_size,
-        coalesce(rc.resource_count, 0) resource_count,
-        coalesce(tc.tile_size, 0) tile_size,
-        coalesce(tc.tile_count, 0) tile_count
+        resource_size,
+        resource_count,
+        tile_size,
+        tile_count
       FROM regions r
-      LEFT JOIN resources_count rc
-        ON rc.region_id = r.id
-      LEFT JOIN tiles_count tc
-        ON tc.region_id = r.id
       """
 
     guard let db = req.db as? any SQLDatabase else {
@@ -308,7 +289,7 @@ struct CacheRegionsController: RouteCollection {
 
     app.logger.info("Starting download for region \(regionID)...")
 
-    _ = try await MapCacheKit
+    let res = try await MapCacheKit
       .downloadRegionAssets(
         with: app,
         using: regionDefinition,
@@ -321,6 +302,9 @@ struct CacheRegionsController: RouteCollection {
       }
       try await self.connectionManager.sendToAll(msg)
     }
+    
+    let db = try app.getDatabase()
+    try await updateRegionAssetCounts(db, res: res)
   }
 
   func deleteCacheRegion(req: Request) async throws -> HTTPStatus {
@@ -402,7 +386,7 @@ func deleteUnreferencedAssets(db: any SQLDatabase, log: Logger) async throws {
     DELETE FROM resources WHERE id NOT IN (
       SELECT resource_id FROM region_resources
     )
-    RETURNING id, length(data) size
+    RETURNING id, data_size size
   """
   let deletedResources = try await db.raw(sql)
     .all(decoding: DeletedAsset.self)
@@ -412,7 +396,7 @@ func deleteUnreferencedAssets(db: any SQLDatabase, log: Logger) async throws {
     DELETE FROM tiles WHERE id NOT IN (
       SELECT tile_id FROM region_tiles
     )
-    RETURNING id, length(data) size
+    RETURNING id, data_size size
     """
   ).all(decoding: DeletedAsset.self)
 
@@ -430,25 +414,26 @@ actor WebSocketConnectionManager {
 
   func add(_ ws: WebSocket) {
     connections.append(ws)
-
-    ws.onClose.whenComplete { res in
-      Task {
-        await self.remove(ws)
-      }
-    }
-  }
-
-  func remove(_ ws: WebSocket) {
-    connections.removeAll(where: { $0 === ws })
   }
 
   func sendToAll(_ message: String) async throws {
+    connections.removeAll(where: { $0.isClosed }) // Clean up closed connections first
     for ws in connections {
-      if ws.isClosed {
-        continue // Skip closed connections
-      }
       try await ws.send(message)
     }
+  }
+  
+  func closeAllConnections() async throws {
+    // Concurrently close all active connections
+    await withThrowingTaskGroup(of: Void.self) { group in
+      connections.removeAll(where: { $0.isClosed }) // Clean up closed connections first
+      for ws in connections {
+        group.addTask {
+          try await ws.close()
+        }
+      }
+    }
+    connections.removeAll(where: { $0.isClosed }) // Final cleanup after closing
   }
 }
 
@@ -467,13 +452,13 @@ func getTotalSize(db: any SQLDatabase) async throws -> CachedAssetsInfo {
   let sql: SQLQueryString = """
       WITH resources_count AS (
         SELECT
-          sum(length(data)) resource_size,
-          count(data) resource_count
+          sum(data_size) resource_size,
+          sum(CASE WHEN data_size > 0 THEN 1 ELSE 0 END) resource_count
         FROM resources
       ), tiles_count AS (
         SELECT
-          sum(length(data)) tile_size,
-          count(data) tile_count
+          sum(data_size) tile_size,
+          sum(CASE WHEN data_size > 0 THEN 1 ELSE 0 END) tile_count
         FROM tiles
       )
       SELECT
@@ -720,3 +705,17 @@ func isGlobalGeometry(_ geom: Geometry) -> Bool {
     return false
   }
 }
+
+
+func updateRegionAssetCounts(_ db: any SQLDatabase, res: CacheRegionProgress) async throws {
+  try await db.raw(
+      """
+      UPDATE regions
+      SET resource_size = \(bind: res.resources.total.size),
+          resource_count = \(bind: res.resources.total.count),
+          tile_size = \(bind: res.tiles.total.size),
+          tile_count = \(bind: res.tiles.total.count)
+      WHERE id = \(bind: res.regionID)
+      """
+  ).run()
+  }
