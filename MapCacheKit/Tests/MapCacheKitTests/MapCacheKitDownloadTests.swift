@@ -191,21 +191,21 @@ func downloadNewTilesForCacheRegion() async throws {
     )
 
     #expect(
-      res1.tilesDownloaded == 13,
+      res1.tiles.downloaded.count == 13,
       "13 tiles should be downloaded for the region"
     )
     #expect(
-      res1.tilesFailed == 0,
+      res1.tiles.failedCount == 0,
       "There should be no tiles that failed to download"
     )
 
     #expect(
-      res1.resourcesDownloaded == 13,
+      res1.resources.downloaded.count == 13,
       "13 resources should be downloaded for the region"
     )
 
     #expect(
-      res1.resourcesFailed == 0,
+      res1.resources.failedCount == 0,
       "There should be no resources that failed to download"
     )
   }

@@ -102,6 +102,17 @@ extension Application {
     }
     return db
   }
+  
+  func migrate() async throws {
+    let migrations = MigrationSystem(migrations: [
+      CreateDatabaseSchemaMigration(),
+      CreateDataSizeColumnMigration(tableName: "resources"),
+      CreateDataSizeColumnMigration(tableName: "tiles"),
+      CreateAssetCountsMigration(),
+      CreateIndicesMigration()
+    ])
+    try await migrations.run(on: try self.getDatabase(), logger: self.logger)
+  }
 }
 
 // configures your application
@@ -129,7 +140,7 @@ public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration, co
   ])
   
   if config.autoMigrate {
-    try await migrations.run(on: try app.getDatabase(), logger: app.logger)
+    try await app.migrate()
   }
   
   // Register routes
