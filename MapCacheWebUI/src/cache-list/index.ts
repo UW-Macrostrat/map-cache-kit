@@ -374,12 +374,12 @@ function getBestResourceInfo(
 ): ResourceInfo | null {
   if (status != null) {
     return {
-      tile_count: status.tilesDownloaded + status.tilesInitiallyDownloaded,
-      tile_size: status.tilesDownloadedSize, // Tile size is not provided in the status
-      resource_count:
-        status.resourcesDownloaded + status.resourcesInitiallyDownloaded,
-      resource_size: status.resourcesDownloadedSize, // Resource size is not provided in the status
-      expected_tile_count: status.tilesTotal,
+      tile_count: status.tiles.total.count,
+      tile_size: status.tiles.total.size, // Tile size is not provided in the status
+      resource_count: status.resources.total.count,
+      resource_size: status.resources.total.size, // Resource size is not provided in the status
+      expected_tile_count:
+        status.tiles.expectedCount + status.tiles.initial.count,
     };
   }
   if (assets != null) {

@@ -47,38 +47,15 @@ struct CacheRegionsController: RouteCollection {
   func index(req: Request) async throws -> CacheRegionsInfo {
     // Get a list of regions
     let sql: SQLQueryString = """
-      WITH resources_count AS (
-        SELECT
-          region_id,
-          sum(r.data_size) resource_size,
-          sum(CASE WHEN r.data_size > 0 THEN 1 ELSE 0 END) resource_count
-        FROM region_resources rr
-        JOIN resources r
-          ON rr.resource_id = r.id
-        GROUP BY rr.region_id
-      ), tiles_count AS (
-        SELECT
-          region_id,
-          sum(t.data_size) tile_size,
-          sum(CASE WHEN t.data_size > 0 THEN 1 ELSE 0 END) tile_count
-        FROM region_tiles rt
-        JOIN tiles t
-          ON rt.tile_id = t.id
-        GROUP BY rt.region_id
-      )
       SELECT
         r.id,
         r.definition,
         r.description,
-        coalesce(rc.resource_size, 0) resource_size,
-        coalesce(rc.resource_count, 0) resource_count,
-        coalesce(tc.tile_size, 0) tile_size,
-        coalesce(tc.tile_count, 0) tile_count
+        resource_size,
+        resource_count,
+        tile_size,
+        tile_count
       FROM regions r
-      LEFT JOIN resources_count rc
-        ON rc.region_id = r.id
-      LEFT JOIN tiles_count tc
-        ON tc.region_id = r.id
       """
 
     guard let db = req.db as? any SQLDatabase else {
@@ -312,7 +289,7 @@ struct CacheRegionsController: RouteCollection {
 
     app.logger.info("Starting download for region \(regionID)...")
 
-    _ = try await MapCacheKit
+    let res = try await MapCacheKit
       .downloadRegionAssets(
         with: app,
         using: regionDefinition,
@@ -325,6 +302,9 @@ struct CacheRegionsController: RouteCollection {
       }
       try await self.connectionManager.sendToAll(msg)
     }
+    
+    let db = try app.getDatabase()
+    try await updateRegionAssetCounts(db, res: res)
   }
 
   func deleteCacheRegion(req: Request) async throws -> HTTPStatus {
@@ -725,3 +705,17 @@ func isGlobalGeometry(_ geom: Geometry) -> Bool {
     return false
   }
 }
+
+
+func updateRegionAssetCounts(_ db: any SQLDatabase, res: CacheRegionProgress) async throws {
+  try await db.raw(
+      """
+      UPDATE regions
+      SET resource_size = \(bind: res.resources.total.size),
+          resource_count = \(bind: res.resources.total.count),
+          tile_size = \(bind: res.tiles.total.size),
+          tile_count = \(bind: res.tiles.total.count)
+      WHERE id = \(bind: res.regionID)
+      """
+  ).run()
+  }

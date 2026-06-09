@@ -108,26 +108,37 @@ enum CacheDownloadStatus: String, Codable {
   case cancelled = "cancelled"
 }
 
+struct AssetsStatus: Content {
+  let count: Int
+  let size: Int64
+}
+
+struct CacheRegionAssetInfo: Content {
+  let initial: AssetsStatus
+  let downloaded: AssetsStatus
+  let total: AssetsStatus
+  let failedCount: Int
+  let expectedCount: Int
+}
+
 struct CacheRegionProgress: Content {
   let regionID: Int
-  let resourcesDownloaded: Int
-  let resourcesInitiallyDownloaded: Int
-  let resourcesFailed: Int
-  let resourcesTotal: Int
-  let resourcesDownloadedSize: Int64
-  let tilesDownloaded: Int
-  let tilesInitiallyDownloaded: Int
-  let tilesTotal: Int
-  let tilesFailed: Int
-  let tilesDownloadedSize: Int64
+  let resources: CacheRegionAssetInfo
+  let tiles: CacheRegionAssetInfo
   let isFinished: Bool
   let lastErrorMessage: String?
   let status: CacheDownloadStatus
 
   var progress: Double {
-    let total = Double(resourcesTotal + tilesTotal)
-    guard total > 0 else { return 1.0 }
-    return Double(resourcesDownloaded + tilesDownloaded + resourcesFailed + tilesFailed) / total
+    let expectedCount = Double(resources.expectedCount + tiles.expectedCount)
+    guard expectedCount > 0 else { return 1.0 }
+    return Double(
+      resources.downloaded.count + tiles.downloaded.count + resources.failedCount + tiles.failedCount
+    ) / expectedCount
+  }
+
+  var hasErrors: Bool {
+    return lastErrorMessage != nil
   }
 }
 
@@ -141,19 +152,19 @@ func downloadRegionAssets(
 
   // Get the assets to download
   let assets = try await getRegionAssets(with: app, using: definition, options: options)
-  
+
   app.logger.debug("Computed region assets")
-  
+
   let db = try app.getDatabase()
 
-  app.logger.debug("Linking \(assets.tiles.alreadyDownloaded.count) tiles to region")
-  
+  app.logger.info("Linking \(assets.tiles.alreadyDownloaded.count) already downloaded tiles to region")
+
   for tile in assets.tiles.alreadyDownloaded {
     try await insertLink(db, regionID: regionID, tileID: tile)
   }
-  
-  app.logger.debug("Linking \(assets.resources.alreadyDownloaded.count) resources to region")
-  
+
+  app.logger.info("Linking \(assets.resources.alreadyDownloaded.count) already downloaded resources to region")
+
   for resource in assets.resources.alreadyDownloaded {
     try await insertLink(db, regionID: regionID, resourceID: resource)
   }
@@ -198,7 +209,7 @@ func downloadRegionAssets(
       }
     }
   }
-  
+
   app.logger.debug("Created \(downloadTasks.count) download tasks")
 
   // Download tiles
@@ -214,16 +225,29 @@ func downloadRegionAssets(
 
   let initialProgress = CacheRegionProgress(
     regionID: regionID,
-    resourcesDownloaded: 0,
-    resourcesInitiallyDownloaded: assets.resources.alreadyDownloaded.count,
-    resourcesFailed: 0,
-    resourcesTotal: totalResources,
-    resourcesDownloadedSize: 0,
-    tilesDownloaded: 0,
-    tilesInitiallyDownloaded: assets.tiles.alreadyDownloaded.count,
-    tilesTotal: totalTiles,
-    tilesFailed: 0,
-    tilesDownloadedSize: 0,
+    resources: CacheRegionAssetInfo(
+      initial: AssetsStatus(
+        count: assets.resources.alreadyDownloaded.count,
+        size: assets.resources.totalSizeDownloaded
+      ),
+      downloaded: AssetsStatus(count: 0, size: 0),
+      total: AssetsStatus(count: totalResources, size: assets.resources.totalSizeDownloaded),
+      failedCount: 0,
+      expectedCount: assets.resources.toDownload.count
+    ),
+    tiles: CacheRegionAssetInfo(
+      initial: AssetsStatus(
+        count: assets.tiles.alreadyDownloaded.count,
+        size: assets.tiles.totalSizeDownloaded
+      ),
+      downloaded: AssetsStatus(count: 0, size: 0),
+      total: AssetsStatus(
+        count: totalTiles,
+        size: assets.tiles.totalSizeDownloaded
+      ),
+      failedCount: 0,
+      expectedCount: assets.tiles.toDownload.count
+    ),
     isFinished: false,
     lastErrorMessage: nil,
     status: .pending
@@ -237,24 +261,24 @@ func downloadRegionAssets(
     let maxConcurrent = (try? app.config.maxConcurrentHTTPConnections) ?? 4
     var tasksInFlight = 0
     var taskIterator = downloadTasks.makeIterator()
-    
+
     // Seed the group up to maxConcurrent
     while tasksInFlight < maxConcurrent, let task = taskIterator.next() {
       taskGroup.addTask(operation: task)
       tasksInFlight += 1
     }
+    var status: CacheDownloadStatus = .pending
 
     for try await result in taskGroup {
       tasksInFlight -= 1
-      
+
       // Refill one slot for each completed task
       if let next = taskIterator.next() {
         taskGroup.addTask(operation: next)
         tasksInFlight += 1
       }
-      
+
       let errorMessage: String?
-      var status: CacheDownloadStatus = .pending
       switch result.result {
       case .success(let dataSize):
         switch result.request.type {
@@ -279,31 +303,45 @@ func downloadRegionAssets(
           status = .cancelled
         }
       }
-      
+
       let totalCompleted = downloadedResources + downloadedTiles + failedResources + failedTiles
-      
-      
 
       if taskGroup.isEmpty && status != .cancelled {
         status = .complete
       }
       let val  = CacheRegionProgress(
         regionID: regionID,
-        resourcesDownloaded: downloadedResources,
-        resourcesInitiallyDownloaded: assets.resources.alreadyDownloaded.count,
-        resourcesFailed: failedResources,
-        resourcesTotal: totalResources,
-        resourcesDownloadedSize: downloadedResourcesSize,
-        tilesDownloaded: downloadedTiles,
-        tilesInitiallyDownloaded: assets.tiles.alreadyDownloaded.count,
-        tilesTotal: totalTiles,
-        tilesFailed: failedTiles,
-        tilesDownloadedSize: downloadedTilesSize,
+        resources: CacheRegionAssetInfo(
+          initial: AssetsStatus(
+            count: assets.resources.alreadyDownloaded.count,
+            size: assets.resources.totalSizeDownloaded
+          ),
+          downloaded: AssetsStatus(count: downloadedResources, size: downloadedResourcesSize),
+          total: AssetsStatus(
+            count: totalResources,
+            size: assets.resources.totalSizeDownloaded + downloadedResourcesSize
+          ),
+          failedCount: failedResources,
+          expectedCount: assets.resources.toDownload.count
+        ),
+        tiles: CacheRegionAssetInfo(
+          initial: AssetsStatus(
+            count: assets.tiles.alreadyDownloaded.count,
+            size: assets.tiles.totalSizeDownloaded
+          ),
+          downloaded: AssetsStatus(count: downloadedTiles, size: downloadedTilesSize),
+          total: AssetsStatus(
+            count: totalTiles,
+            size: assets.tiles.totalSizeDownloaded + downloadedTilesSize
+          ),
+          failedCount: failedTiles,
+          expectedCount: assets.tiles.toDownload.count
+        ),
         isFinished: taskGroup.isEmpty,
         lastErrorMessage: errorMessage,
         status: status
       )
-      
+
       if (totalCompleted % 100 == 0) {
         app.logger.debug("""
           Download progress: \(totalCompleted) / \(totalTiles + totalResources) (tiles: \(downloadedTiles)/\(totalTiles), resources: \(downloadedResources)/\(totalResources), failed tiles: \(failedTiles), failed resources: \(failedResources))
@@ -311,6 +349,7 @@ func downloadRegionAssets(
       }
 
       lastVal = val
+
       do {
         try await onProgress(val)
       } catch {
@@ -326,16 +365,15 @@ func downloadRegionAssets(
       }
     }
     
-    app.logger.debug("Finished download with status \(lastVal.status.rawValue)")
-    
+    app.logger.info("Finished download with status \(status.rawValue)")
+
     for try await _ in taskGroup {
       // No-op, just draining remaining results after cancellation
     }
-    
+
     return lastVal
   }
 }
-
 
 func getData(_ app: Application, url: URI) async throws -> Data? {
   let res = try await downloadFile(with: app, url: url)

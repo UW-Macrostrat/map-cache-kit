@@ -175,9 +175,71 @@ struct CreateIndicesMigration: Migration {
   }
 }
 
+struct CreateAssetCountsMigration: Migration {
+  func run(on db: any SQLDatabase) async throws {
+    try await runSQL(db, statements: """
+      ALTER TABLE regions ADD COLUMN resource_size INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE regions ADD COLUMN resource_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE regions ADD COLUMN tile_size INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE regions ADD COLUMN tile_count INTEGER NOT NULL DEFAULT 0;
+      """)
+    
+    try await updateResourceCounts(db)
+    
+  }
+  
+  func shouldApply(on db: any SQLDatabase) async throws -> Bool {
+    // Check if the resource_size column exists
+    return !(try await hasColumns(db, tableName: "regions", columnNames: [
+      "resource_size",
+      "resource_count",
+      "tile_size",
+      "tile_count"
+    ]))
+    
+  }
+}
+
+
+func updateResourceCounts(_ database: any SQLDatabase) async throws {
+  try await runSQL(database, statements: """
+      WITH resource_counts AS (
+        SELECT
+          region_id,
+          sum(r.data_size) resource_size,
+          sum(CASE WHEN r.data_size > 0 THEN 1 ELSE 0 END) resource_count
+        FROM region_resources rr
+        JOIN resources r
+          ON rr.resource_id = r.id
+        GROUP BY rr.region_id
+      ), tile_counts AS (
+        SELECT
+          region_id,
+          sum(t.data_size) tile_size,
+          sum(CASE WHEN t.data_size > 0 THEN 1 ELSE 0 END) tile_count
+        FROM region_tiles rt
+        JOIN tiles t
+          ON rt.tile_id = t.id
+        GROUP BY rt.region_id
+      )
+    UPDATE regions
+    SET
+      resource_size = (SELECT resource_size FROM resource_counts c WHERE c.region_id = regions.id),
+      resource_count = (SELECT resource_count FROM resource_counts c WHERE c.region_id = regions.id),
+      tile_size = (SELECT tile_size FROM tile_counts c WHERE c.region_id = regions.id),
+      tile_count = (SELECT tile_count FROM tile_counts c WHERE c.region_id = regions.id)
+  """)
+  
+}
+
 func indexExists(_ database: any SQLDatabase, indexName: String) async throws -> Bool {
   let result = try await database.raw("SELECT name FROM sqlite_master WHERE type='index' AND name = \(bind: indexName)").first(decodingColumn: "name", as: String.self)
   return result != nil
+}
+
+func hasColumns(_ database: any SQLDatabase, tableName: String, columnNames: [String]) async throws -> Bool {
+  let result = try await database.raw("SELECT name FROM pragma_table_info(\(bind: tableName))").all(decodingColumn: "name", as: String.self)
+  return Set(result).isSuperset(of: Set(columnNames))
 }
 
 func hasColumn(_ database: any SQLDatabase, tableName: String, columnName: String) async throws -> Bool {

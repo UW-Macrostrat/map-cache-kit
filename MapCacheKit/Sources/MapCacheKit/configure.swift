@@ -124,6 +124,7 @@ public func configure(_ app: Application, cacheDatabase: SQLiteConfiguration, co
     CreateDatabaseSchemaMigration(),
     CreateDataSizeColumnMigration(tableName: "resources"),
     CreateDataSizeColumnMigration(tableName: "tiles"),
+    CreateAssetCountsMigration(),
     CreateIndicesMigration()
   ])
   
