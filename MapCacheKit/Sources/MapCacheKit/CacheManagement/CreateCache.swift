@@ -128,17 +128,36 @@ struct CacheRegionProgress: Content {
   let isFinished: Bool
   let lastErrorMessage: String?
   let status: CacheDownloadStatus
+  let progress: Double
+  let hasErrors: Bool
 
-  var progress: Double {
+  init(
+    regionID: Int,
+    resources: CacheRegionAssetInfo,
+    tiles: CacheRegionAssetInfo,
+    isFinished: Bool,
+    lastErrorMessage: String?,
+    status: CacheDownloadStatus
+  ) {
+    self.regionID = regionID
+    self.resources = resources
+    self.tiles = tiles
+    self.isFinished = isFinished
+    self.lastErrorMessage = lastErrorMessage
+    self.status = status
+
+    // Create some computed properties for convenience.
+    // Note: these aren't implemented as getters because these are not included in
+    // automated conformance.
     let expectedCount = Double(resources.expectedCount + tiles.expectedCount)
-    guard expectedCount > 0 else { return 1.0 }
-    return Double(
-      resources.downloaded.count + tiles.downloaded.count + resources.failedCount + tiles.failedCount
-    ) / expectedCount
-  }
-
-  var hasErrors: Bool {
-    return lastErrorMessage != nil
+    if expectedCount > 0 {
+      self.progress = Double(
+        resources.downloaded.count + tiles.downloaded.count + resources.failedCount + tiles.failedCount
+      ) / expectedCount
+    } else {
+      self.progress = 1.0
+    }
+    self.hasErrors = lastErrorMessage != nil
   }
 }
 
@@ -216,12 +235,12 @@ func downloadRegionAssets(
   var downloadedTiles = 0
   var downloadedTilesSize: Int64 = 0
   var failedTiles = 0
-  let totalTiles = assets.tiles.toDownload.count
+  let totalTiles = assets.tiles.alreadyDownloaded.count + assets.resources.toDownload.count
   // Download resources
   var downloadedResources = 0
   var downloadedResourcesSize: Int64 = 0
   var failedResources = 0
-  let totalResources = assets.resources.toDownload.count
+  let totalResources = assets.resources.alreadyDownloaded.count + assets.resources.toDownload.count
 
   let initialProgress = CacheRegionProgress(
     regionID: regionID,
@@ -256,6 +275,7 @@ func downloadRegionAssets(
   try await onProgress(initialProgress)
 
   var lastVal = initialProgress
+  var status: CacheDownloadStatus = .pending
 
   return try await withThrowingTaskGroup(of: DownloadResult.self) { taskGroup in
     let maxConcurrent = (try? app.config.maxConcurrentHTTPConnections) ?? 4
@@ -267,7 +287,6 @@ func downloadRegionAssets(
       taskGroup.addTask(operation: task)
       tasksInFlight += 1
     }
-    var status: CacheDownloadStatus = .pending
 
     for try await result in taskGroup {
       tasksInFlight -= 1
@@ -306,9 +325,6 @@ func downloadRegionAssets(
 
       let totalCompleted = downloadedResources + downloadedTiles + failedResources + failedTiles
 
-      if taskGroup.isEmpty && status != .cancelled {
-        status = .complete
-      }
       let val  = CacheRegionProgress(
         regionID: regionID,
         resources: CacheRegionAssetInfo(
@@ -350,13 +366,7 @@ func downloadRegionAssets(
 
       lastVal = val
 
-      do {
-        try await onProgress(val)
-      } catch {
-        // Log but continue — a broken progress channel
-        // shouldn't abort the download
-        app.logger.warning("Progress callback failed: \(error)")
-      }
+      try await onProgress(val)
 
       if status == .cancelled {
         taskGroup.cancelAll()
@@ -364,14 +374,29 @@ func downloadRegionAssets(
         break
       }
     }
-    
+
+    if taskGroup.isEmpty && status != .cancelled {
+      status = .complete
+    }
+
     app.logger.info("Finished download with status \(status.rawValue)")
+
+    let finalResult = CacheRegionProgress(
+      regionID: regionID,
+      resources: lastVal.resources,
+      tiles: lastVal.tiles,
+      isFinished: true,
+      lastErrorMessage: lastVal.lastErrorMessage,
+      status: status
+    )
+
+    try await onProgress(finalResult)
 
     for try await _ in taskGroup {
       // No-op, just draining remaining results after cancellation
     }
 
-    return lastVal
+    return finalResult
   }
 }
 
